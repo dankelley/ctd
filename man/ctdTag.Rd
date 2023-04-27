@@ -27,6 +27,14 @@ of the problem, otherwise.
 \description{
 Tag CTD features
 }
+\examples{
+\dontrun{
+library(ctd)
+file <- "~/data/arctic/beaufort/2012/d201211_0047.cnv"
+shiny::shinyOptions(file=file, height=550)
+}
+
+}
 \author{
 Dan Kelley
 }

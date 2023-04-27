@@ -16,6 +16,13 @@
 #' @return [ctdTag()] returns either an empty string, if the procedure worked, or a description
 #' of the problem, otherwise.
 #'
+#' @examples
+#'\dontrun{
+#' library(ctd)
+#' file <- "~/data/arctic/beaufort/2012/d201211_0047.cnv"
+#' shiny::shinyOptions(file=file, height=550)
+#'}
+#'
 #' @importFrom shiny runApp shinyOptions
 #'
 #' @author Dan Kelley
