@@ -1,7 +1,7 @@
 #' Tag CTD features
 #'
-#' @param file name of file containing CTD data, which must be in a format
-#' handled by [oce::read.oce()].
+#' @param file character value specifying the name of a file containing CTD data,
+#' which must be in a format handled by [oce::read.oce()].
 #'
 #' @param dbname optional character value specifying the name of a sqlite
 #' database used to hold tagging information.  If not provided, a file name
@@ -13,24 +13,29 @@
 #'
 #' @param taglist optional [list] containing (FILL IN).
 #'
-#' @return either an empty string, if the procedure worked, or a description
+#' @return [ctdTag()] returns either an empty string, if the procedure worked, or a description
 #' of the problem, otherwise.
 #'
+#' @importFrom shiny runApp shinyOptions
+#'
 #' @author Dan Kelley
+#'
 #' @export
-ctdTag <- function(file, dbname=NULL, taglist=NULL)
+ctdTag <- function(file, dbname=NULL, taglist=NULL, height=400)
 {
     if (missing(file))
         stop("must give 'file'")
     if (is.null(dbname))
-        dbname <- "DANNY"
+        dbname <- getDatabaseName("ctdTag")
     if (is.null(taglist))
         taglist <- list("MLD"=1, "iTop"=2, "iTop?"=3, "iBot"=4, "iBot?"=5, "WS"=6, "WS?"=7, "CF"=8, "CF?"=9)
-    print(dbname)
-    print(taglist)
+    #cat(oce::vectorShow(file))
+    #cat(oce::vectorShow(dbname))
+    #cat(oce::vectorShow(taglist))
     dir <- system.file("shiny", "ctdTag/app.R", package="ctd")
     if (!nchar(dir))
         stop("The app could not be located.", call.=FALSE)
-    print(dir)
-    ""
+    #cat(oce::vectorShow(dir))
+    shinyOptions(file=file, height=height, taglist=taglist)
+    runApp(dir, display.mode="normal")
 }

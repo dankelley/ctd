@@ -1,5 +1,6 @@
 *~
 *.out
+*.db
 
 # History files
 .Rhistory

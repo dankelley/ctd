@@ -2,3 +2,5 @@
 
 export(ctdTag)
 export(getDatabaseName)
+importFrom(shiny,runApp)
+importFrom(shiny,shinyOptions)

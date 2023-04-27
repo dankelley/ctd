@@ -4,11 +4,11 @@
 \alias{ctdTag}
 \title{Tag CTD features}
 \usage{
-ctdTag(file, dbname = NULL, taglist = NULL)
+ctdTag(file, dbname = NULL, taglist = NULL, height = 400)
 }
 \arguments{
-\item{file}{name of file containing CTD data, which must be in a format
-handled by \code{\link[oce:read.oce]{oce::read.oce()}}.}
+\item{file}{character value specifying the name of a file containing CTD data,
+which must be in a format handled by \code{\link[oce:read.oce]{oce::read.oce()}}.}
 
 \item{dbname}{optional character value specifying the name of a sqlite
 database used to hold tagging information.  If not provided, a file name
@@ -21,7 +21,7 @@ not altered.}
 \item{taglist}{optional \link{list} containing (FILL IN).}
 }
 \value{
-either an empty string, if the procedure worked, or a description
+\code{\link[=ctdTag]{ctdTag()}} returns either an empty string, if the procedure worked, or a description
 of the problem, otherwise.
 }
 \description{
