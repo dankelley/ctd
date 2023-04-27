@@ -4,17 +4,20 @@
 \alias{getDatabaseName}
 \title{Construct a database name.}
 \usage{
-getDatabaseName(prefix = "ctdTag", username, suffix)
+getDatabaseName(prefix, username, suffix, path = ".")
 }
 \arguments{
 \item{prefix}{character value indicating the prefix for the database
-name.}
+name.  Often, this will be the name of a project, or application.}
 
 \item{username}{character value for the user's login name. If not provided,
 an attempt is made to construct this using \code{\link[=Sys.info]{Sys.info()}}.}
 
 \item{suffix}{optional character value that may be included in the filename,
 if provided.}
+
+\item{path}{character value indicating the directory to contain the file. This
+defaults to the present directory.}
 }
 \value{
 \link{getDatabaseName} returns a character value constructed by
@@ -27,7 +30,10 @@ A database name is constructed to in the form \verb{PREFIX_USERNAME[_SUFFIX].db}
 where the upper-case items are inferred from corresponding parameters.
 }
 \examples{
-getDatabaseName() # ctdTag_kelley.db, for the author
+getDatabaseName() # ./kelley.db, for the author
+getDatabaseName(path="/Users/kelley/databases") # /Users/kelley/databases/kelley.db, for the author
+getDatabaseName("foo") # ./foo_kelley.db, for the author
+getDatabaseName("foo", "bar") # foo_bar.db
 getDatabaseName("foo", "bar", "01") # foo_bar_01.db
 
 }
