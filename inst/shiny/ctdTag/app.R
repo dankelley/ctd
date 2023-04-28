@@ -100,18 +100,19 @@ getTags <- function(file=NULL, dbname=NULL)
 
 removeTag <- function(file=NULL, level=NULL, dbname=NULL)
 {
-    dmsg("removeTag(file=", file, ", level=", level, ", dbname=", dbname, "\n")
+    dmsg("removeTag(file=\"", file, "\", level=", level, ", dbname=\"", dbname, "\") {\n")
     con <- dbConnect(RSQLite::SQLite(), dbname)
     tags <- RSQLite::dbReadTable(con, "tags")
     remove <- which(tags$file == file & tags$level == level)
     if (length(remove)) {
-        dmsg("will remove ", paste(remove, collapse=" "), "-th tag\n")
-        dmsg(" BEFORE levels are: ", paste(tags$level, collapse=" "), "\n")
+        dmsg("    will remove ", paste(remove, collapse=" "), "-th tag\n")
+        dmsg("        BEFORE levels are: ", paste(tags$level, collapse=" "), "\n")
         tags <- tags[-remove, ]
-        dmsg(" AFTER  levels are: ", paste(tags$level, collapse=" "), "\n")
+        dmsg("        AFTER  levels are: ", paste(tags$level, collapse=" "), "\n")
         RSQLite::dbWriteTable(con, "tags", tags, overwrite=TRUE)
     }
     RSQLite::dbDisconnect(con)
+    dmsg("} removeTag()\n")
 }
 
 saveTag <- function(file=NULL, level=NULL, tagCode=NULL, tagScheme=NULL, analyst=NULL, dbname=NULL)
@@ -463,7 +464,7 @@ server <- function(input, output, session) {
             } else if (key == "x") {
                 dmsg("responding to 'x' to remove tag if focussed\n")
                 if (focusIsTagged()) {
-                    removeTag(file=state$file, level=state$level, dbname=getDatabaseName())
+                    removeTag(file=state$file, level=state$level, dbname=dbname)
                     state$step <<- state$step + 1 # other shiny elements notice this
                 }
             } else if (key == "u") {
@@ -555,7 +556,7 @@ server <- function(input, output, session) {
             if (nrow(tags) > 0) {
                 with(default$tag,
                     points(state$data$theta[tags$level], state$data$yProfile[tags$level],
-                        cex=cex, pch=pch, lwd=lwd, col=1+tags$tagCode))
+                        cex=cex, pch=pch, lwd=lwd, col=col))
                 text(state$data$theta[tags$level], state$data$yProfile[tags$level], tags$tagLabel, col=2, pos=4)
             }
             axis(side=2)
@@ -581,7 +582,8 @@ server <- function(input, output, session) {
             if (nrow(tags) > 0) {
                 with(default$tag,
                     points(state$data$salinity[tags$level], state$data$yProfile[tags$level],
-                        cex=cex, pch=pch, lwd=lwd, col=1+tags$tagCode))
+                        cex=cex, pch=pch, lwd=lwd, col=col))
+                text(state$data$salinity[tags$level], state$data$yProfile[tags$level], tags$tagLabel, col=2, pos=4)
             }
             axis(side=2)
             axis(side=3)
@@ -606,7 +608,8 @@ server <- function(input, output, session) {
             if (nrow(tags) > 0) {
                 with(default$tag,
                     points(state$data$sigmaTheta[tags$level], state$data$yProfile[tags$level],
-                        cex=cex, pch=pch, lwd=lwd, col=1+tags$tagCode))
+                        cex=cex, pch=pch, lwd=lwd, col=col))
+                text(state$data$sigmaTheta[tags$level], state$data$yProfile[tags$level], tags$tagLabel, col=2, pos=4)
             }
             axis(side=2)
             axis(side=3)
@@ -636,7 +639,8 @@ server <- function(input, output, session) {
             if (nrow(tags) > 0) {
                 with(default$tag,
                     points(state$data$salinity[tags$level], state$data$theta[tags$level],
-                        cex=cex, pch=pch, lwd=lwd, col=1+tags$tagCode))
+                        cex=cex, pch=pch, lwd=lwd, col=col))
+                text(state$data$salinity[tags$level], state$data$theta[tags$level], tags$tagLabel, col=2, pos=4)
             }
         } else {
             plot(0:1, 0:1, xlab="", ylab="", axes=FALSE, type="n")
