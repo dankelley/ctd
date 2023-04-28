@@ -4,13 +4,15 @@ library(oce)
 options(oceEOS="unesco") # avoid the hassle of supporting two EOSs
 debug <- 1
 
+#' @importFrom shinyjs runjs
+
 #library(shiny)
-library(shinyBS)
-library(shinyjs)
-library(shinycssloaders)
+#?library(shinyBS)
+#?requireNamespace(shinyjs)
+#?library(shinycssloaders)
 #library(oce)
-library(DBI)
-library(RSQLite)
+#?requireNamespace(DBI)
+#?requireNamespace(RSQLite)
 
 helpMouse <- "<p><i>Mouse</i></p>
 <ul>
@@ -155,6 +157,8 @@ limitsTrim <- function(limits, ndata)
     limits
 }
 
+# Create logical vector indicating whether each point is visible, based
+# on the two indices stored in 'limits'.
 limitsToVisible <- function(limits, ndata)
 {
     #limits[1] <- max(1L, as.integer(limits[1]))
@@ -189,9 +193,11 @@ default <- list(
     tag=list(cex=2, lwd=2, pch=1))
 
 ui <- fluidPage(
-    useShinyjs(),
+    shinyjs::useShinyjs(),
     style="margin-bottom:1px; margin-top:0px; color:red; padding-top:0px; padding-bottom:0px;",
     tags$script('$(document).on("keypress", function (e) { Shiny.onInputChange("keypress", e.which); Shiny.onInputChange("keypressTrigger", Math.random()); });'),
+#>                shiny::actionButton("goW", shiny::HTML("&larr;")),
+ #>               shiny::actionButton("goN", shiny::HTML("&uarr;")),
     fluidRow(
         style="background:#e6f3ff;cursor:crosshair;col=blue;",
         column(1, actionButton("help", "Help")),
@@ -211,10 +217,16 @@ ui <- fluidPage(
         column(1,  actionButton("clear", "Clear brush"))),
     fluidRow(
         style="background:#e6f3ff;cursor:crosshair;color:black;margin-top:0px;",
-        column(12, uiOutput("tagMsg"))),
+        column(8, uiOutput("tagMsg")),
+        actionButton("goDown", HTML("&darr;")),
+        actionButton("goUp", HTML("&uarr;")),
+        actionButton("zoomOut", HTML("-")),
+        actionButton("zoomIn", HTML("+"))),
+    fluidRow(
+        uiOutput("tagButtons")),
     fluidRow(
         style="background:#e6f3ff;cursor:crosshair;color:red;margin-top:0px;",
-        column(12, uiOutput("tagHint"))),
+        column(8, uiOutput("tagHint"))),
     fluidRow(
         uiOutput("plotPanel")))
 
@@ -236,6 +248,7 @@ server <- function(input, output, session) {
     #file <- "~/data/arctic/beaufort/2012/d201211_0048.cnv"
     file <- shiny::getShinyOption("file")
     height <- shiny::getShinyOption("height")
+    taglist <- shiny::getShinyOption("taglist")
     #print(file)
     ctd <- oce::read.oce(file)
     #dbname <<- "ctd.db"
@@ -260,10 +273,11 @@ server <- function(input, output, session) {
     focusIsTagged <- function() {
         !is.null(state$level) && (state$level %in% getTags(state$file)$level)
     }
+
     observeEvent(input$clear,
         {
             values$brush <- NULL
-            runjs("document.getElementById('plot_brush').remove()")
+            shinyjs::runjs("document.getElementById('plot_brush').remove()")
         })
 
     observeEvent(input$help,
@@ -275,6 +289,48 @@ server <- function(input, output, session) {
     observeEvent(input$quit,
         {
             stopApp()
+        })
+
+    observeEvent(input$goUp,
+        {
+            dmsg("responding to 'goUp'\n")
+            if (!head(state$visible, 1)) {
+                limits <- visibleToLimits(state$visible)
+                span <- diff(limits)
+                limits <- limitsTrim(limits - (1/4)*span, state$ndata)
+                state$visible <- limitsToVisible(limits, state$ndata)
+            }
+        })
+
+    observeEvent(input$goDown,
+        {
+            dmsg("responding to 'goDown'\n")
+            if (!tail(state$visible, 1)) {
+                limits <- visibleToLimits(state$visible)
+                span <- diff(limits)
+                limits <- limitsTrim(limits + (1/4)*span, state$ndata)
+                state$visible <- limitsToVisible(limits, state$ndata)
+            }
+         })
+
+    observeEvent(input$zoomIn,
+        {
+            dmsg("responding to 'zoomIn'\n")
+            limits <- visibleToLimits(state$visible)
+            msg(vectorShow(limits))
+            span <- max(diff(limits) / 4, 10)
+            msg(vectorShow(span))
+            limits <- limitsTrim(limits + c(span, -span), state$ndata)
+            state$visible <- limitsToVisible(limits, state$ndata)
+        })
+ 
+    observeEvent(input$zoomOut,
+        {
+            dmsg("responding to 'zoomOut'\n")
+            limits <- visibleToLimits(state$visible)
+            span <- max(diff(limits) / 4, 10)
+            limits <- limitsTrim(limits + c(-span, span), state$ndata)
+            state$visible <- limitsToVisible(limits, state$ndata)
         })
 
     observeEvent(input$click,
@@ -371,7 +427,7 @@ server <- function(input, output, session) {
                 if (!tail(state$visible, 1)) {
                     limits <- visibleToLimits(state$visible)
                     span <- diff(limits)
-                    limits <- limitsTrim(limits + (2/3)*span, state$ndata)
+                    limits <- limitsTrim(limits + (1/4)*span, state$ndata)
                     state$visible <- limitsToVisible(limits, state$ndata)
                 }
             } else if (key == "k") {
@@ -379,7 +435,7 @@ server <- function(input, output, session) {
                 if (!head(state$visible, 1)) {
                     limits <- visibleToLimits(state$visible)
                     span <- diff(limits)
-                    limits <- limitsTrim(limits - (2/3)*span, state$ndata)
+                    limits <- limitsTrim(limits - (1/4)*span, state$ndata)
                     state$visible <- limitsToVisible(limits, state$ndata)
                 }
             } else if (key == "x") {
@@ -561,11 +617,3 @@ server <- function(input, output, session) {
     }, height=height, pointsize=14)
 }
 shinyApp(ui, server)
-
-#<> #shinyOptions(file="/Users/kelley/Dropbox/data/arctic/beaufort/2012/d201211_0048.cnv")
-#<> file <- "~/data/arctic/beaufort/2012/d201211_0047.cnv"
-#<> shiny::shinyOptions(file=file, height=550)
-#<> if (!file.exists(file))
-#<>     stop("File=\"", file, "\" does not exist")
-#<> shinyApp(ui, server)
-#<> 

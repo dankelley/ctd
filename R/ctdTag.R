@@ -20,7 +20,7 @@
 #'\dontrun{
 #' library(ctd)
 #' file <- "~/data/arctic/beaufort/2012/d201211_0047.cnv"
-#' shiny::shinyOptions(file=file, height=550)
+#' ctdTag(file=file, height=550)
 #'}
 #'
 #' @importFrom shiny runApp shinyOptions
@@ -35,7 +35,7 @@ ctdTag <- function(file, dbname=NULL, taglist=NULL, height=400)
     if (is.null(dbname))
         dbname <- getDatabaseName("ctdTag")
     if (is.null(taglist))
-        taglist <- list("MLD"=1, "iTop"=2, "iTop?"=3, "iBot"=4, "iBot?"=5, "WS"=6, "WS?"=7, "CF"=8, "CF?"=9)
+        taglist <- list("iTop"=1, "iTop?"=2, "iBot"=3, "iBot?"=4, "WS"=5, "WS?"=6, "CF"=7, "CF?"=8)
     #cat(oce::vectorShow(file))
     #cat(oce::vectorShow(dbname))
     #cat(oce::vectorShow(taglist))
