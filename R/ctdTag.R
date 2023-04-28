@@ -5,13 +5,16 @@
 #'
 #' @param dbname optional character value specifying the name of a sqlite
 #' database used to hold tagging information.  If not provided, a file name
-#' is constructed with [getDatabaseName()]. 
+#' is constructed with [getDatabaseName()].
 #' If this file does not exist, it is created, and a table named
-#' `taglist` is constructed in it, according to the `taglist` parameter.
-#' However, if the file already exists, then its `taglist` table is
+#' `tagScheme` is constructed in it, according to the `tagScheme` parameter.
+#' However, if the file already exists, then its `tagScheme` table is
 #' not altered.
 #'
-#' @param taglist optional [list] containing (FILL IN).
+#' @param tagScheme optional [data.frame] containing items `tagCode` (integer) and
+#' `tagLabel` (character).  If not given, the labels default to
+#' `c("iTop", "iTop?", "iBot", "iBot?", "WS", "WS?", "CF", "CF?")` and
+#' the codes default to 1:8.
 #'
 #' @param height height of the plot in pixels.
 #'
@@ -31,7 +34,7 @@
 #'\dontrun{
 #' library(ctd)
 #' file <- "~/data/arctic/beaufort/2012/d201211_0047.cnv"
-#' ctdTag(file=file, height=550)
+#' ctdTag(file=file)
 #'}
 #'
 #' @importFrom shiny runApp shinyOptions
@@ -42,20 +45,22 @@
 #' @author Dan Kelley
 #'
 #' @export
-ctdTag <- function(file, dbname=NULL, taglist=NULL, height=400, clickDistanceCriterion=0.02, debug=0)
+ctdTag <- function(file, dbname=NULL, tagScheme=NULL, height=400, clickDistanceCriterion=0.02, debug=0)
 {
     if (missing(file))
         stop("must give 'file'")
     if (is.null(dbname))
         dbname <- getDatabaseName("ctdTag")
-    if (is.null(taglist))
-        taglist <- list("iTop"=1, "iTop?"=2, "iBot"=3, "iBot?"=4, "WS"=5, "WS?"=6, "CF"=7, "CF?"=8)
+    if (is.null(tagScheme)) {
+        labels <- c("iTop", "iTop?", "iBot", "iBot?", "WS", "WS?", "CF", "CF?")
+        tagScheme <- data.frame(tagCode=seq_along(labels), tagLabel=labels)
+    }
     dir <- system.file("shiny", "ctdTag/app.R", package="ctd")
     if (!nchar(dir))
         stop("The app could not be located.", call.=FALSE)
     shinyOptions(file=file,
         height=height,
-        taglist=taglist,
+        tagScheme=tagScheme,
         clickDistanceCriterion=clickDistanceCriterion,
         dbname=dbname,
         debug=debug)

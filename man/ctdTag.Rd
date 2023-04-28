@@ -7,7 +7,7 @@
 ctdTag(
   file,
   dbname = NULL,
-  taglist = NULL,
+  tagScheme = NULL,
   height = 400,
   clickDistanceCriterion = 0.02,
   debug = 0
@@ -21,11 +21,14 @@ which must be in a format handled by \code{\link[oce:read.oce]{oce::read.oce()}}
 database used to hold tagging information.  If not provided, a file name
 is constructed with \code{\link[=getDatabaseName]{getDatabaseName()}}.
 If this file does not exist, it is created, and a table named
-\code{taglist} is constructed in it, according to the \code{taglist} parameter.
-However, if the file already exists, then its \code{taglist} table is
+\code{tagScheme} is constructed in it, according to the \code{tagScheme} parameter.
+However, if the file already exists, then its \code{tagScheme} table is
 not altered.}
 
-\item{taglist}{optional \link{list} containing (FILL IN).}
+\item{tagScheme}{optional \link{data.frame} containing items \code{tagCode} (integer) and
+\code{tagLabel} (character).  If not given, the labels default to
+\code{c("iTop", "iTop?", "iBot", "iBot?", "WS", "WS?", "CF", "CF?")} and
+the codes default to 1:8.}
 
 \item{height}{height of the plot in pixels.}
 
@@ -49,7 +52,7 @@ Tag CTD features
 \dontrun{
 library(ctd)
 file <- "~/data/arctic/beaufort/2012/d201211_0047.cnv"
-ctdTag(file=file, height=550)
+ctdTag(file=file)
 }
 
 }
