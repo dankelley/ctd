@@ -21,6 +21,9 @@
 #' the span of the current view, then that nearest point is selected. Otherwise,
 #' any existing selected point is deselected.
 #'
+#' @param debug integer indicating whether to print some informative information
+#' to the R console.  Use 0 for mainly silent processing, 1 for more information, etc.
+#'
 #' @return [ctdTag()] returns either an empty string, if the procedure worked, or a description
 #' of the problem, otherwise.
 #'
@@ -32,11 +35,14 @@
 #'}
 #'
 #' @importFrom shiny runApp shinyOptions
+#' @importFrom oce read.oce
+#' @importFrom DBI dbClearResult dbConnect dbCreateTable dbFetch dbListTables dbReadTable dbSendQuery dbWriteTable
+#' @importFrom RSQLite SQLite
 #'
 #' @author Dan Kelley
 #'
 #' @export
-ctdTag <- function(file, dbname=NULL, taglist=NULL, height=400, clickDistanceCriterion=0.02)
+ctdTag <- function(file, dbname=NULL, taglist=NULL, height=400, clickDistanceCriterion=0.02, debug=0)
 {
     if (missing(file))
         stop("must give 'file'")
@@ -44,13 +50,14 @@ ctdTag <- function(file, dbname=NULL, taglist=NULL, height=400, clickDistanceCri
         dbname <- getDatabaseName("ctdTag")
     if (is.null(taglist))
         taglist <- list("iTop"=1, "iTop?"=2, "iBot"=3, "iBot?"=4, "WS"=5, "WS?"=6, "CF"=7, "CF?"=8)
-    #cat(oce::vectorShow(file))
-    #cat(oce::vectorShow(dbname))
-    #cat(oce::vectorShow(taglist))
     dir <- system.file("shiny", "ctdTag/app.R", package="ctd")
     if (!nchar(dir))
         stop("The app could not be located.", call.=FALSE)
-    #cat(oce::vectorShow(dir))
-    shinyOptions(file=file, height=height, taglist=taglist, clickDistanceCriterion=clickDistanceCriterion)
+    shinyOptions(file=file,
+        height=height,
+        taglist=taglist,
+        clickDistanceCriterion=clickDistanceCriterion,
+        dbname=dbname,
+        debug=debug)
     runApp(dir, display.mode="normal")
 }

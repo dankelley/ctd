@@ -4,7 +4,7 @@
 \alias{getDatabaseName}
 \title{Construct a database name.}
 \usage{
-getDatabaseName(prefix, username, suffix, path = ".")
+getDatabaseName(prefix, username, suffix, path = getwd())
 }
 \arguments{
 \item{prefix}{character value indicating the prefix for the database

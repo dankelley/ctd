@@ -16,10 +16,13 @@ debug <- 1
 
 helpMouse <- "<p><i>Mouse</i></p>
 <ul>
-<li>Click near curve to choose a focus point (drawn with a cross).</li>
+<li>Click near the data to choose a focus point.</li>
+<li>Click far from the data to remove an existing focus point.</li>
+<li>Brush to select a view for enlargement.</li>
 </ul>"
 
 helpKeyboard <- "<p><i>Keyboard</i></p>
+<b>FIXME: much of this is now wrong.</b>
 <ul>
 <li> <i>Zoom and pan</i></p></li>
 <ul>
@@ -41,8 +44,6 @@ EG: 1=top of DD layer, 2=bottom of DD layer, 3=warm-salty peak, 4=cool-fresh pea
 
 overallHelp <- c(helpMouse, helpKeyboard)
 
-#dbname <- "initial value, which will be overwritten"
-
 pluralize <- function(n=1, singular="item", plural=NULL)
 {
     singular <- paste(n, singular)
@@ -60,17 +61,21 @@ dmsg <- function(...)
 dprint <- function(...)
     if (debug > 0) print(file=stderr(), ...)
 
-createDatabase <- function(dbname=getDatabaseName())
+createDatabase <- function(dbname=getDatabaseName(), tagScheme=NULL)
 {
-    if (!file.exists(dbname)) {
-        dmsg("creating '", dbname, "'\n")
-        con <- RSQLite::dbConnect(RSQLite::SQLite(), dbname)
-        RSQLite::dbCreateTable(con, "version",
-            c("version"="INTEGER"))
-        RSQLite::dbWriteTable(con, "version", data.frame(version=1L), overwrite=TRUE)
-        RSQLite::dbCreateTable(con, "tags",
-            c("file"="TEXT", level="INT", tag="INT", analyst="TEXT", analysisTime="TIMESTAMP"))
-        RSQLite::dbDisconnect(con)
+    dmsg("createDatabase()...\n")
+    if (file.exists(dbname)) {
+        dmsg("Using existing database \"", dbname, "\"\n")
+    } else {
+        dmsg("createDatabase is creating database \"", dbname, "\"\n")
+        con <- dbConnect(RSQLite::SQLite(), dbname)
+        dbCreateTable(con, "version", c("version"="INTEGER"))
+        dbWriteTable(con, "version", data.frame(version=1L), overwrite=TRUE)
+        dbCreateTable(con, "tagScheme", c("code"="INTEGER", "label"="TEXT"))
+        tagSchemeDF <- data.frame(code=as.numeric(tagScheme), label=names(tagScheme))
+        dbWriteTable(con, "tagScheme", tagSchemeDF, overwrite=TRUE)
+        dbCreateTable(con, "tags", c("file"="TEXT", level="INT", tag="INT", analyst="TEXT", analysisTime="TIMESTAMP"))
+        dbDisconnect(con)
     }
 }
 
@@ -78,10 +83,10 @@ getTags <- function(file=NULL, dbname=getDatabaseName())
 {
     tags <- NULL
     if (file.exists(dbname)) {
-        con <- dbConnect(RSQLite::SQLite(), dbname)
-        if (RSQLite::dbExistsTable(con, "tags")) {
-            tags <- RSQLite::dbReadTable(con, "tags")
-            RSQLite::dbDisconnect(con)
+        con <- dbConnect(SQLite(), dbname)
+        if (dbExistsTable(con, "tags")) {
+            tags <- dbReadTable(con, "tags")
+            dbDisconnect(con)
             if (!is.null(file)) {
                 tags <- tags[tags$file == file, ]
             }
@@ -241,16 +246,21 @@ getDatabaseName <- function(prefix="ctd_tag")
     file.path(paste0(prefix, "_", getUserName(), ".db"))
 
 server <- function(input, output, session) {
+    # extract shiny options (all are required) {
+    dbname <- getShinyOption("dbname", getDatabaseName())
+    file <- getShinyOption("file", NULL)
+    if (is.null(file))
+        stop("Must use shinyOptions(file=\"NAME OF A CTD FILE\")")
+    height <- getShinyOption("height", 500)
+    tagScheme <- getShinyOption("tagScheme", list("iTop"=1, "iTop?"=2, "iBot"=3, "iBot?"=4, "WS"=5, "WS?"=6, "CF"=7, "CF?"=8))
+    clickDistanceCriterion <- getShinyOption("clickDistanceCriterion", 0.02)
+    debug <<- getShinyOption("debug", 0)
+    # }
+    dmsg("about to create database \"", dbname, "\"\n")
+    createDatabase(dbname=dbname, tagScheme=tagScheme)
+    dmsg("   ... done\n")
     values <- reactiveValues(brush=NULL)
-    createDatabase()
-    #file <- "~/data/arctic/beaufort/2012/d201211_0048.cnv"
-    file <- shiny::getShinyOption("file")
-    height <- shiny::getShinyOption("height")
-    taglist <- shiny::getShinyOption("taglist")
-    clickDistanceCriterion <- shiny::getShinyOption("clickDistanceCriterion")
-    #print(file)
     ctd <- oce::read.oce(file)
-    #dbname <<- "ctd.db"
     data <- list(pressure=ctd@data$pressure, salinity=ctd@data$salinity, temperature=ctd@data$temperature)
     data$theta <- swTheta(ctd)
     data$yProfile <- data$pressure
@@ -269,7 +279,8 @@ server <- function(input, output, session) {
         visible=rep(TRUE, length(data$pressure)) # all points visible at the start
         )
 
-    focusIsTagged <- function() {
+    focusIsTagged <- function()
+    {
         !is.null(state$level) && (state$level %in% getTags(state$file)$level)
     }
 
@@ -281,8 +292,8 @@ server <- function(input, output, session) {
 
     observeEvent(input$help,
         {
-            shiny::showModal(shiny::modalDialog(title=NULL,
-                    size="xl", shiny::HTML(overallHelp), easyClose=TRUE))
+            showModal(modalDialog(title=NULL,
+                    size="xl", HTML(overallHelp), easyClose=TRUE))
         })
 
     observeEvent(input$quit,
@@ -316,9 +327,9 @@ server <- function(input, output, session) {
         {
             dmsg("responding to 'zoomIn'\n")
             limits <- visibleToLimits(state$visible)
-            msg(vectorShow(limits))
+            dmsg(vectorShow(limits))
             span <- max(diff(limits) / 4, 10)
-            msg(vectorShow(span))
+            dmsg(vectorShow(span))
             limits <- limitsTrim(limits + c(span, -span), state$ndata)
             state$visible <- limitsToVisible(limits, state$ndata)
         })
@@ -499,7 +510,7 @@ server <- function(input, output, session) {
     output$tagHint <- renderText(
         {
             if (!is.null(state$level))
-                paste("Possible tags: ", paste(taglist, names(taglist), collapse=" ", sep="="))
+                paste("Possible tags: ", paste(tagScheme, names(tagScheme), collapse=" ", sep="="))
             else
                 "Click the mouse near a point to tag it (undo by clicking far from a point)"
         })
@@ -509,7 +520,7 @@ server <- function(input, output, session) {
             state$step # cause a shiny update
             shinyjs::runjs(sprintf("document.getElementById('plot_brush').remove()"))
             plotOutput("plot",
-                brush=brushOpts("brush", delay=1000, resetOnNew=TRUE),
+                brush=brushOpts("brush", delay=2000, resetOnNew=TRUE),
                 click=clickOpts("click"))
         })
 

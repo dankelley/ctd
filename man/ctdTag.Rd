@@ -9,7 +9,8 @@ ctdTag(
   dbname = NULL,
   taglist = NULL,
   height = 400,
-  clickDistanceCriterion = 0.02
+  clickDistanceCriterion = 0.02,
+  debug = 0
 )
 }
 \arguments{
@@ -33,6 +34,9 @@ selects, or deselects a point.  If the ratio of the distance from the mouse
 location to the nearest point exceeds \code{clickDistanceCriterion} times
 the span of the current view, then that nearest point is selected. Otherwise,
 any existing selected point is deselected.}
+
+\item{debug}{integer indicating whether to print some informative information
+to the R console.  Use 0 for mainly silent processing, 1 for more information, etc.}
 }
 \value{
 \code{\link[=ctdTag]{ctdTag()}} returns either an empty string, if the procedure worked, or a description

@@ -30,7 +30,7 @@
 #' @author Dan Kelley
 #'
 #' @export
-getDatabaseName <- function(prefix, username, suffix, path=".")
+getDatabaseName <- function(prefix, username, suffix, path=getwd())
 {
     res <- paste0(path, "/")
     if (!missing(prefix))
