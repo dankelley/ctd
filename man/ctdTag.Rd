@@ -4,7 +4,13 @@
 \alias{ctdTag}
 \title{Tag CTD features}
 \usage{
-ctdTag(file, dbname = NULL, taglist = NULL, height = 400)
+ctdTag(
+  file,
+  dbname = NULL,
+  taglist = NULL,
+  height = 400,
+  clickDistanceCriterion = 0.02
+)
 }
 \arguments{
 \item{file}{character value specifying the name of a file containing CTD data,
@@ -19,6 +25,14 @@ However, if the file already exists, then its \code{taglist} table is
 not altered.}
 
 \item{taglist}{optional \link{list} containing (FILL IN).}
+
+\item{height}{height of the plot in pixels.}
+
+\item{clickDistanceCriterion}{numeric value controlling whether a mouse click
+selects, or deselects a point.  If the ratio of the distance from the mouse
+location to the nearest point exceeds \code{clickDistanceCriterion} times
+the span of the current view, then that nearest point is selected. Otherwise,
+any existing selected point is deselected.}
 }
 \value{
 \code{\link[=ctdTag]{ctdTag()}} returns either an empty string, if the procedure worked, or a description

@@ -120,33 +120,35 @@ saveTag <- function(file=NULL, level=NULL, tag=NULL, analyst=NULL, dbname=NULL)
 
 findNearestLevel <- function(x, y, usr, data, view)
 {
-    dmsg("findNearestLevel(", x, ",", y, "..., view=", view, ")\n")
-    #dmsg("  ", vectorShow(usr))
-    dx2 <- diff(usr[1:2])^2
-    dy2 <- diff(usr[3:4])^2
-    #dmsg("  ", vectorShow(dx2))
-    #dmsg("  ", vectorShow(dy2))
+    dmsg("findNearestLevel(x=", x, ", y=", y, ", ..., view=", view, ")\n")
+    dmsg("  ", vectorShow(usr))
+    dx2 <- (usr[2] - usr[1])^2
+    dy2 <- (usr[4] - usr[3])^2
+    dmsg("  ", vectorShow(dx2))
+    dmsg("  ", vectorShow(dy2))
     if (view == "T profile") {
         d2 <- (x - data$theta)^2/dx2 + (y - data$yProfile)^2/dy2
         nearest <- which.min(d2)
-        dmsg(sprintf("  T=%.3f, p=%.3f -> index=%d\n", x, y, nearest))
+        dmsg(sprintf("  T=%.3f, y=%.3f -> index=%d (where y=%.1f)\n", x, y, nearest, data$yProfile[nearest]))
     } else if (view == "S profile") {
         d2 <- (x - data$salinity)^2/dx2 + (y - data$yProfile)^2/dy2
         nearest <- which.min(d2)
-        dmsg(sprintf("  S=%.3f, p=%.3f -> index=%d\n", x, y, nearest))
+        dmsg(sprintf("  S=%.3f, y=%.3f -> index=%d (where y=%.1f)\n", x, y, nearest, data$yProfile[nearest]))
     } else if (view == "sigmaTheta profile") {
         d2 <- (x - data$sigmaTheta)^2/dx2 + (y - data$yProfile)^2/dy2
         nearest <- which.min(d2)
-        dmsg(sprintf("  sigmaTheta=%.3f, p=%.3f -> index=%d\n", x, y, nearest))
+        dmsg(sprintf("  sigmaTheta=%.3f, y=%.3f -> index=%d (where y=%.1f)\n", x, y, nearest, data$yProfile[nearest]))
      } else if (view == "TS") {
         d2 <- (x - data$salinity)^2/dx2 + (y - data$theta)^2/dy2
         nearest <- which.min(d2)
-        dmsg(sprintf("  S=%.3f, p=%.3f -> index=%d\n", x, y, nearest))
+        dmsg(sprintf("  S=%.3f, theta=%.3f -> index=%d (where S=%.1f theta=%.1f)\n",
+                x, y, nearest, data$salinity[nearest], data$theta[nearest]))
     } else {
         stop("view=\"", view, "\" is not handled yet")
     }
-    dmsg("  returning ", nearest, "\n")
-    nearest
+    relativeDistance <- sqrt(d2[nearest])
+    dmsg(sprintf("  returning nearest=%d, relativeDistance=%.4f\n", nearest, relativeDistance))
+    list(nearest=nearest, relativeDistance=relativeDistance)
 }
 
 limitsTrim <- function(limits, ndata)
@@ -189,15 +191,13 @@ default <- list(
     selected=list(cex=3, col="purple", lwd=4, pch=5),
     tagged=list(cex=1.4, col=2, lwd=2, pch=20),
     cex=1.0,
-    focus=list(cex=2, col="purple", lwd=2, pch=3, minimumSpan=5L),
+    focus=list(cex=3, col="purple", lwd=2, pch=1, minimumSpan=5L),
     tag=list(cex=2, lwd=2, pch=1))
 
 ui <- fluidPage(
     shinyjs::useShinyjs(),
     style="margin-bottom:1px; margin-top:0px; color:red; padding-top:0px; padding-bottom:0px;",
     tags$script('$(document).on("keypress", function (e) { Shiny.onInputChange("keypress", e.which); Shiny.onInputChange("keypressTrigger", Math.random()); });'),
-#>                shiny::actionButton("goW", shiny::HTML("&larr;")),
- #>               shiny::actionButton("goN", shiny::HTML("&uarr;")),
     fluidRow(
         style="background:#e6f3ff;cursor:crosshair;col=blue;",
         column(1, actionButton("help", "Help")),
@@ -223,8 +223,6 @@ ui <- fluidPage(
         actionButton("zoomOut", HTML("-")),
         actionButton("zoomIn", HTML("+"))),
     fluidRow(
-        uiOutput("tagButtons")),
-    fluidRow(
         style="background:#e6f3ff;cursor:crosshair;color:red;margin-top:0px;",
         column(8, uiOutput("tagHint"))),
     fluidRow(
@@ -249,6 +247,7 @@ server <- function(input, output, session) {
     file <- shiny::getShinyOption("file")
     height <- shiny::getShinyOption("height")
     taglist <- shiny::getShinyOption("taglist")
+    clickDistanceCriterion <- shiny::getShinyOption("clickDistanceCriterion")
     #print(file)
     ctd <- oce::read.oce(file)
     #dbname <<- "ctd.db"
@@ -335,11 +334,12 @@ server <- function(input, output, session) {
 
     observeEvent(input$click,
         {
-            dmsg("click\n")
-            state$level  <- findNearestLevel(input$click$x, input$click$y, state$usr, state$data, input$view)
-            #dmsg("state$level =", state$level, "\n")
+            closest <- findNearestLevel(input$click$x, input$click$y, state$usr, state$data, input$view)
+            dmsg(sprintf("click yielded nearest=%d, relativeDistance=%.1f%%\n", closest$level, 100*closest$relativeDistance))
+            state$level <- if (closest$relativeDistance < clickDistanceCriterion) closest$nearest else NULL
         })
 
+    # Define visibility based on the pressure limits of brushed region
     observeEvent(input$brush,
         {
             #dmsg(vectorShow(input$brush$xmin))
@@ -348,17 +348,13 @@ server <- function(input, output, session) {
             #dmsg(vectorShow(input$brush$ymax))
             #dmsg(vectorShow(input$view))
             if (grepl("profile", input$view)) {
-                dmsg("brushed on a profile\n")
-                x <- state$data$theta
-                y <- data$yProfile
-                # ignore x extent of brush
-                state$visible <<- with(input$brush, ymin <= y & y <= ymax)
+                dmsg("brushed on a profile (ignoring x extend of brush)\n")
+                visible <- with(input$brush, ymin <= data$yProfile & data$yProfile <= ymax)
             } else if (input$view == "TS") {
                 dmsg("brushed on a TS diagram\n")
                 x <- state$data$salinity
                 y <- state$data$theta
-                # Find first and last pressures spanning box, so TS extrema are
-                # retained.
+                # Find first and last pressures spanning box, so TS extrema are retained.
                 nvisible <- length(x)
                 visible <- with(input$brush, xmin <= x & x <= xmax & ymin <= y & y <= ymax)
                 first <- which(visible)[1]
@@ -377,9 +373,15 @@ server <- function(input, output, session) {
                 dmsg(sprintf("first=%d last=%d\n", first, last))
                 visible <- rep(FALSE, nvisible)
                 visible[first:last] <- TRUE
-                state$visible <<- visible
             }
             #print(input$brush, file=stderr())
+            sumvisible <- sum(state$visible)
+            sumvisiblenew <- sum(visible)
+            if (sumvisiblenew > 0.1 * sumvisible) {
+                state$visible <<- visible
+            } else {
+                dmsg(" brush region is too small (", round(100*sumvisiblenew/sumvisible, 1), "%%) to obey")
+            }
         })
 
     observeEvent(input$keypressTrigger,
@@ -496,23 +498,26 @@ server <- function(input, output, session) {
 
     output$tagHint <- renderText(
         {
-            paste("Possible tags: ", paste(taglist, names(taglist), collapse=" ", sep="="))
+            if (!is.null(state$level))
+                paste("Possible tags: ", paste(taglist, names(taglist), collapse=" ", sep="="))
+            else
+                "Click the mouse near a point to tag it (undo by clicking far from a point)"
         })
 
-    output$plotPanel <- renderUI({
-        state$step # cause a shiny update
-        shinyjs::runjs(sprintf("document.getElementById('plot_brush').remove()"))
-        plotOutput("plot",
-            brush=brushOpts("brush", delay=1000, resetOnNew=TRUE),
-            hover="hover",
-            click=clickOpts("click"))
-    })
+    output$plotPanel <- renderUI(
+        {
+            state$step # cause a shiny update
+            shinyjs::runjs(sprintf("document.getElementById('plot_brush').remove()"))
+            plotOutput("plot",
+                brush=brushOpts("brush", delay=1000, resetOnNew=TRUE),
+                click=clickOpts("click"))
+        })
 
     output$plot <- renderPlot({
         state$step # cause a shiny update
         input$yProfile # cause a shiny update
         if (input$view == "T profile") {
-            par(mar=c(1, 3.3, 3, 1), mgp=c(1.9, 0.5, 0))
+            par(mar=c(1, 3.3, 3, 1.5), mgp=c(1.9, 0.5, 0))
             x <- state$data$theta[state$visible]
             y <- data$yProfile[state$visible]
             plot(x, y, ylim=rev(range(y)), yaxs="i", type=input$plotType,

@@ -13,6 +13,14 @@
 #'
 #' @param taglist optional [list] containing (FILL IN).
 #'
+#' @param height height of the plot in pixels.
+#'
+#' @param clickDistanceCriterion numeric value controlling whether a mouse click
+#' selects, or deselects a point.  If the ratio of the distance from the mouse
+#' location to the nearest point exceeds `clickDistanceCriterion` times
+#' the span of the current view, then that nearest point is selected. Otherwise,
+#' any existing selected point is deselected.
+#'
 #' @return [ctdTag()] returns either an empty string, if the procedure worked, or a description
 #' of the problem, otherwise.
 #'
@@ -28,7 +36,7 @@
 #' @author Dan Kelley
 #'
 #' @export
-ctdTag <- function(file, dbname=NULL, taglist=NULL, height=400)
+ctdTag <- function(file, dbname=NULL, taglist=NULL, height=400, clickDistanceCriterion=0.02)
 {
     if (missing(file))
         stop("must give 'file'")
@@ -43,6 +51,6 @@ ctdTag <- function(file, dbname=NULL, taglist=NULL, height=400)
     if (!nchar(dir))
         stop("The app could not be located.", call.=FALSE)
     #cat(oce::vectorShow(dir))
-    shinyOptions(file=file, height=height, taglist=taglist)
+    shinyOptions(file=file, height=height, taglist=taglist, clickDistanceCriterion=clickDistanceCriterion)
     runApp(dir, display.mode="normal")
 }
