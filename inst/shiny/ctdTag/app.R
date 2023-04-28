@@ -72,14 +72,14 @@ createDatabase <- function(dbname=getDatabaseName(), tagScheme=NULL)
         dbCreateTable(con, "version", c("version"="INTEGER"))
         dbWriteTable(con, "version", data.frame(version=1L), overwrite=TRUE)
         dbCreateTable(con, "tagScheme", c("code"="INTEGER", "label"="TEXT"))
-        tagSchemeDF <- data.frame(code=as.numeric(tagScheme), label=names(tagScheme))
+        tagSchemeDF <- data.frame(code=as.integer(tagScheme), label=names(tagScheme))
         dbWriteTable(con, "tagScheme", tagSchemeDF, overwrite=TRUE)
         dbCreateTable(con, "tags", c("file"="TEXT", level="INT", tag="INT", analyst="TEXT", analysisTime="TIMESTAMP"))
         dbDisconnect(con)
     }
 }
 
-getTags <- function(file=NULL, dbname=getDatabaseName())
+getTags <- function(file=NULL, dbname=NULL)
 {
     tags <- NULL
     if (file.exists(dbname)) {
@@ -111,13 +111,12 @@ removeTag <- function(file=NULL, level=NULL, dbname=NULL)
     RSQLite::dbDisconnect(con)
 }
 
-
 saveTag <- function(file=NULL, level=NULL, tag=NULL, analyst=NULL, dbname=NULL)
 {
     # no checking on NULL; add that if we want to generalize
     df <- data.frame(file=file, level=level, tag=tag, analyst=analyst, analysisTime=Sys.time())
     #dprint(df)
-    #dmsg("saveTag(file=", file, ", level=", level, ", tag=", tag, ", analyst=", analyst, ", dbname=", dbname, ")")
+    dmsg("saveTag(file=", file, ", level=", level, ", tag=", tag, ", analyst=", analyst, ", dbname=", dbname, ")")
     con <- dbConnect(RSQLite::SQLite(), dbname)
     RSQLite::dbAppendTable(con, "tags", df)
     RSQLite::dbDisconnect(con)
@@ -281,7 +280,7 @@ server <- function(input, output, session) {
 
     focusIsTagged <- function()
     {
-        !is.null(state$level) && (state$level %in% getTags(state$file)$level)
+        !is.null(state$level) && (state$level %in% getTags(state$file, dbname=dbname)$level)
     }
 
     observeEvent(input$clear,
@@ -409,7 +408,7 @@ server <- function(input, output, session) {
                         #dmsg("  analystName=\"", state$analystName, "\"\n")
                         #dmsg("  file=\"", state$file, "\"\n")
                         saveTag(file=state$file, level=state$level, tag=as.integer(key),
-                            analyst=state$analyst, dbname=getDatabaseName())
+                            analyst=state$analyst, dbname=dbname)
                         state$step <<- state$step + 1 # other shiny elements notice this
                     } else {
                         showNotification("No focus points in current view")
@@ -498,7 +497,7 @@ server <- function(input, output, session) {
         {
             state$step # to cause shiny to update this
             file <- state$file
-            tags <- getTags(state$file)
+            tags <- getTags(state$file, dbname=dbname)
             tags <- tags[tags$file == file, ]
             tagMsg <- if (length(tags$tag) > 0L) pluralize(length(tags$tag), "tag") else "no tags yet"
             focusMsg <- if (focusIsTagged()) paste0("| focus, at level ", state$level, ", is tagged") else ""
@@ -540,7 +539,7 @@ server <- function(input, output, session) {
                     points(state$data$theta[state$level], state$data$yProfile[state$level],
                         cex=cex, col=col, lwd=lwd, pch=pch))
             }
-            tags <- getTags(state$file)
+            tags <- getTags(state$file, dbname=dbname)
             if (length(tags$tag) > 0) {
                 with(default$tag,
                     points(state$data$theta[tags$level], state$data$yProfile[tags$level],
@@ -565,7 +564,7 @@ server <- function(input, output, session) {
                     points(state$data$salinity[state$level], state$data$yProfile[state$level],
                         cex=cex, col=col, lwd=lwd, pch=pch))
             }
-            tags <- getTags(state$file)
+            tags <- getTags(state$file, dbname=dbname)
             if (length(tags$tag) > 0) {
                 with(default$tag,
                     points(state$data$salinity[tags$level], state$data$yProfile[tags$level],
@@ -590,7 +589,7 @@ server <- function(input, output, session) {
                     points(state$data$sigmaTheta[state$level], state$data$yProfile[state$level],
                         cex=cex, col=col, lwd=lwd, pch=pch))
             }
-            tags <- getTags(state$file)
+            tags <- getTags(state$file, dbname=dbname)
             if (length(tags$tag) > 0) {
                 with(default$tag,
                     points(state$data$sigmaTheta[tags$level], state$data$yProfile[tags$level],
@@ -620,7 +619,7 @@ server <- function(input, output, session) {
                     points(state$data$salinity[state$level], state$data$theta[state$level],
                         cex=cex, col=col, lwd=lwd, pch=pch))
             }
-            tags <- getTags(state$file)
+            tags <- getTags(state$file, dbname=dbname)
             if (length(tags$tag) > 0) {
                 with(default$tag,
                     points(state$data$salinity[tags$level], state$data$theta[tags$level],
