@@ -4,7 +4,7 @@
 \alias{getDatabaseName}
 \title{Construct a database name.}
 \usage{
-getDatabaseName(prefix, username, suffix, path = getwd())
+getDatabaseName(prefix, username, suffix, path = "~")
 }
 \arguments{
 \item{prefix}{character value indicating the prefix for the database
@@ -30,11 +30,11 @@ A database name is constructed to in the form \verb{PREFIX_USERNAME[_SUFFIX].db}
 where the upper-case items are inferred from corresponding parameters.
 }
 \examples{
-getDatabaseName() # ./kelley.db, for the author
-getDatabaseName(path="/Users/kelley/databases") # /Users/kelley/databases/kelley.db, for the author
-getDatabaseName("foo") # ./foo_kelley.db, for the author
-getDatabaseName("foo", "bar") # foo_bar.db
-getDatabaseName("foo", "bar", "01") # foo_bar_01.db
+getDatabaseName() # ~/kelley.db, for the author
+getDatabaseName(path="~/databases") # ~/databases/kelley.db, for the author
+getDatabaseName("foo") # ~/foo_kelley.db, for the author
+getDatabaseName("foo", "bar") # ~/foo_bar.db
+getDatabaseName("foo", "bar", "01") # ~/foo_bar_01.db
 
 }
 \author{

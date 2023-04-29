@@ -1,5 +1,5 @@
-#test_that("getDatabaseName() works", {
-#    expect_equal("./kelley.db", getDatabaseName(username="kelley"))
-#    expect_equal("./foo_bar.db", getDatabaseName("foo", "bar"))
-#    expect_equal("./foo_bar_01.db", getDatabaseName("foo", "bar", "01"))
-#})
+test_that("getDatabaseName() works", {
+    expect_equal(getDatabaseName(username="kelley"), "~/kelley.db")
+    expect_equal(getDatabaseName("foo", "bar"), "~/foo_bar.db")
+    expect_equal(getDatabaseName("foo", "bar", "01"), "~/foo_bar_01.db")
+})

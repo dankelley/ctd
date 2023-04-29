@@ -21,16 +21,16 @@
 #' see \sQuote{Examples}.
 #'
 #' @examples
-#' getDatabaseName() # ./kelley.db, for the author
-#' getDatabaseName(path="/Users/kelley/databases") # /Users/kelley/databases/kelley.db, for the author
-#' getDatabaseName("foo") # ./foo_kelley.db, for the author
-#' getDatabaseName("foo", "bar") # foo_bar.db
-#' getDatabaseName("foo", "bar", "01") # foo_bar_01.db
+#' getDatabaseName() # ~/kelley.db, for the author
+#' getDatabaseName(path="~/databases") # ~/databases/kelley.db, for the author
+#' getDatabaseName("foo") # ~/foo_kelley.db, for the author
+#' getDatabaseName("foo", "bar") # ~/foo_bar.db
+#' getDatabaseName("foo", "bar", "01") # ~/foo_bar_01.db
 #'
 #' @author Dan Kelley
 #'
 #' @export
-getDatabaseName <- function(prefix, username, suffix, path=getwd())
+getDatabaseName <- function(prefix, username, suffix, path="~")
 {
     res <- paste0(path, "/")
     if (!missing(prefix))
