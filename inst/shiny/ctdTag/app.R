@@ -14,36 +14,6 @@ debug <- 1
 #?requireNamespace(DBI)
 #?requireNamespace(RSQLite)
 
-helpMouse <- "<p><i>Mouse</i></p>
-<ul>
-<li>Click near the data to choose a focus point.</li>
-<li>Click far from the data to remove an existing focus point.</li>
-<li>Brush to select a view for enlargement.</li>
-</ul>"
-
-helpKeyboard <- "<p><i>Keyboard</i></p>
-<b>FIXME: much of this is now wrong.</b>
-<ul>
-<li> <i>Zoom and pan</i></p></li>
-<ul>
-<li> <b>i</b> zoom in near mouse</li>
-<li> <b>o</b> zoom out</li>
-<li> <b>O</b> (upper-case 'o') zoom all the way out</li>
-<li> <b>j</b> move down in water column</li>
-<li> <b>k</b> move up in water column</li>
-</ul>
-<li><i>Tagging</i></li>
-<ul>
-<li> <b>0</b> through <b>9</b> tag the focus point with given numeric code.
-EG: 1=top of DD layer, 2=bottom of DD layer, 3=warm-salty peak, 4=cool-fresh peak.</li>
-<li> <b>x</b> remove tag on focus point</li>
-<li> <b>u</b> remove focus point</li>
-</ul>
-</ul>
-"
-
-overallHelp <- c(helpMouse, helpKeyboard)
-
 pluralize <- function(n=1, singular="item", plural=NULL)
 {
     singular <- paste(n, singular)
@@ -58,22 +28,27 @@ msg <- function(...)
 dmsg <- function(...)
     if (debug > 0) cat(file=stderr(), ..., sep="")
 
+dmsg1 <- function(...)
+    if (debug > 1) cat(file=stderr(), ..., sep="")
+
+dmsg2 <- function(...)
+    if (debug > 2) cat(file=stderr(), ..., sep="")
+
 dprint <- function(...)
     if (debug > 0) print(file=stderr(), ...)
 
 createDatabase <- function(dbname=getDatabaseName(), tagScheme=NULL)
 {
-    dmsg("createDatabase()...\n")
     if (file.exists(dbname)) {
-        dmsg("Using existing database \"", dbname, "\"\n")
+        dmsg("createDatabase(): using existing database \"", dbname, "\"\n")
     } else {
-        dmsg("createDatabase is creating database \"", dbname, "\"\n")
+        dmsg("createDatabase(): creating database \"", dbname, "\"\n")
+        stop("Must provide tagScheme")
         con <- dbConnect(RSQLite::SQLite(), dbname)
         dbCreateTable(con, "version", c("major"="INTEGER", "minor"="INTEGER"))
         dbWriteTable(con, "version", data.frame(major=1L, minor=0L), overwrite=TRUE)
         dbCreateTable(con, "tagScheme", c("tagCode"="INTEGER", "tagLabel"="TEXT"))
-        if (!is.null(tagScheme))
-            dbWriteTable(con, "tagScheme", tagScheme, overwrite=TRUE)
+        dbWriteTable(con, "tagScheme", tagScheme, overwrite=TRUE)
         dbCreateTable(con, "tags", c("file"="TEXT", level="INT", tagCode="INT", tagLabel="TEXT",
                 analyst="TEXT", analysisTime="TIMESTAMP"))
         dbDisconnect(con)
@@ -83,7 +58,7 @@ createDatabase <- function(dbname=getDatabaseName(), tagScheme=NULL)
 getTags <- function(file=NULL, dbname=NULL)
 {
     tags <- NULL
-    dmsg("getTags(file=\"", file, "\", dbname=\"", dbname, "\"\n")
+    #dmsg("getTags(file=\"", file, "\", dbname=\"", dbname, "\"\n")
     if (file.exists(dbname)) {
         con <- dbConnect(SQLite(), dbname)
         if (dbExistsTable(con, "tags")) {
@@ -105,11 +80,11 @@ removeTag <- function(file=NULL, level=NULL, dbname=NULL)
     tags <- RSQLite::dbReadTable(con, "tags")
     remove <- which(tags$file == file & tags$level == level)
     if (length(remove)) {
-        dmsg("    will remove ", paste(remove, collapse=" "), "-th tag\n")
-        dmsg("        BEFORE levels are: ", paste(tags$level, collapse=" "), "\n")
+        dmsg("    removing ", paste(remove, collapse=" "), "-th tag\n")
         tags <- tags[-remove, ]
-        dmsg("        AFTER  levels are: ", paste(tags$level, collapse=" "), "\n")
         RSQLite::dbWriteTable(con, "tags", tags, overwrite=TRUE)
+    } else {
+        dmsg("    nothing to remove\n")
     }
     RSQLite::dbDisconnect(con)
     dmsg("} removeTag()\n")
@@ -130,27 +105,27 @@ saveTag <- function(file=NULL, level=NULL, tagCode=NULL, tagScheme=NULL, analyst
 findNearestLevel <- function(x, y, usr, data, view)
 {
     dmsg("findNearestLevel(x=", x, ", y=", y, ", ..., view=", view, ")\n")
-    dmsg("  ", vectorShow(usr))
+    #dmsg("  ", vectorShow(usr))
     dx2 <- (usr[2] - usr[1])^2
     dy2 <- (usr[4] - usr[3])^2
-    dmsg("  ", vectorShow(dx2))
-    dmsg("  ", vectorShow(dy2))
+    dmsg2("  ", vectorShow(dx2))
+    dmsg2("  ", vectorShow(dy2))
     if (view == "T profile") {
         d2 <- (x - data$theta)^2/dx2 + (y - data$yProfile)^2/dy2
         nearest <- which.min(d2)
-        dmsg(sprintf("  T=%.3f, y=%.3f -> index=%d (where y=%.1f)\n", x, y, nearest, data$yProfile[nearest]))
+        dmsg1(sprintf("  T=%.3f, y=%.3f -> index=%d (where y=%.1f)\n", x, y, nearest, data$yProfile[nearest]))
     } else if (view == "S profile") {
         d2 <- (x - data$salinity)^2/dx2 + (y - data$yProfile)^2/dy2
         nearest <- which.min(d2)
-        dmsg(sprintf("  S=%.3f, y=%.3f -> index=%d (where y=%.1f)\n", x, y, nearest, data$yProfile[nearest]))
+        dmsg1(sprintf("  S=%.3f, y=%.3f -> index=%d (where y=%.1f)\n", x, y, nearest, data$yProfile[nearest]))
     } else if (view == "sigmaTheta profile") {
         d2 <- (x - data$sigmaTheta)^2/dx2 + (y - data$yProfile)^2/dy2
         nearest <- which.min(d2)
-        dmsg(sprintf("  sigmaTheta=%.3f, y=%.3f -> index=%d (where y=%.1f)\n", x, y, nearest, data$yProfile[nearest]))
+        dmsg1(sprintf("  sigmaTheta=%.3f, y=%.3f -> index=%d (where y=%.1f)\n", x, y, nearest, data$yProfile[nearest]))
      } else if (view == "TS") {
         d2 <- (x - data$salinity)^2/dx2 + (y - data$theta)^2/dy2
         nearest <- which.min(d2)
-        dmsg(sprintf("  S=%.3f, theta=%.3f -> index=%d (where S=%.1f theta=%.1f)\n",
+        dmsg1(sprintf("  S=%.3f, theta=%.3f -> index=%d (where S=%.1f theta=%.1f)\n",
                 x, y, nearest, data$salinity[nearest], data$theta[nearest]))
     } else {
         stop("view=\"", view, "\" is not handled yet")
@@ -209,31 +184,34 @@ ui <- fluidPage(
     tags$script('$(document).on("keypress", function (e) { Shiny.onInputChange("keypress", e.which); Shiny.onInputChange("keypressTrigger", Math.random()); });'),
     fluidRow(
         style="background:#e6f3ff;cursor:crosshair;col=blue;",
-        column(1, actionButton("help", "Help")),
         column(1, actionButton("quit", "Quit")),
-        column(3, selectInput("view", label=NULL,
-                choices=c("S profile"="S profile",
-                    "T profile"="T profile",
-                    "sigmaTheta profile"="sigmaTheta profile",
+        column(1, actionButton("help", "Help")),
+        column(2, selectInput("debug", label=NULL,
+                choices=c("No debugging"=0, "Min. debugging"=1, "Max. debugging"=2),
+                selected=0)),
+        column(2, selectInput("view", label=NULL,
+                choices=c("S prof."="S profile",
+                    "T prof."="T profile",
+                    "sigmaTheta prof."="sigmaTheta profile",
                     "TS"="TS"),
                 selected="T profile")),
-        column(3, selectInput("yProfile", label=NULL,
+        column(2, selectInput("yProfile", label=NULL,
                 choices=c("pressure"="pressure", "sigma-theta"="sigmaTheta"),
                 selected="pressure")),
         column(2, selectInput("plotType", label=NULL,
-                choices=c("line"="l", "points"="p", "line+points"="o"),
+                choices=c("line"="l", "points"="p", "both"="o"),
                 selected="o")),
         column(1,  actionButton("clear", "Clear brush"))),
     fluidRow(
         style="background:#e6f3ff;cursor:crosshair;color:black;margin-top:0px;",
-        column(8, uiOutput("tagMsg")),
+        column(9, uiOutput("tagMsg")),
         actionButton("goDown", HTML("&darr;")),
         actionButton("goUp", HTML("&uarr;")),
         actionButton("zoomOut", HTML("-")),
         actionButton("zoomIn", HTML("+"))),
     fluidRow(
         style="background:#e6f3ff;cursor:crosshair;color:red;margin-top:0px;",
-        column(8, uiOutput("tagHint"))),
+        column(12, uiOutput("tagHint"))),
     fluidRow(
         uiOutput("plotPanel")))
 
@@ -262,11 +240,72 @@ server <- function(input, output, session) {
         tagScheme <- data.frame(tagCode=seq_along(labels), tagLabel=tagLabels)
     }
     clickDistanceCriterion <- getShinyOption("clickDistanceCriterion", 0.02)
+    brushCriterion <- 0.1 # a brush must cover this fraction of plot area
     debug <<- getShinyOption("debug", 0)
     # }
-    dmsg("about to create database \"", dbname, "\"\n")
+    overallHelp <- function() {
+        # FIXME: tailor help to state, e.g. if no focus, the only thing
+        # they can do is to focus, or to zoom/pan.
+        helpMouse <- "<p><i>Mouse</i></p>
+        <ul>
+        <li>Click near the data to choose a focus point, which permits tagging. Note
+        that focus points are removed by clicking far from the data, or by zooming
+        in/out, or by moving up/down.</li>
+        </ul>"
+
+        helpKeyboard <- "<p><i>Keyboard</i></p>
+        <ul>
+        <li> <b>x</b> remove tag on focus point.</li>
+        <li> <b>0</b>, <b>1</b> etc (as listed) tag the focussed point.</li>
+        </ul>
+        "
+        if (is.null(state$focusLevel)) {
+            "<p><i>Possible pointer actions</i></p>
+            <ul>
+            <li>Click near data to focus on a level.</li>
+            <li>Brush to zoom in to a specific region.</li>
+            </ul>
+            <p><i>Possible button actions</i></p>
+            <ul>
+            <li>Pulldown menus alter the view.</li>
+            <li>The up/down arrow buttons pan up and down (in pressure).</li>
+            <li>The '-' and '+' buttons zoom in and out with respect to the present centre.</li>
+            </ul>"
+        } else {
+            if (focusIsTagged()) {
+                "<p><i>Possible pointer actions</i></p>
+                <ul>
+                <li>Click far from data, zoom, or pan to unselect focus point.</li>
+                </ul>
+                <p><i>Possible keyboard actions</i></p>
+                <ul>
+                <li>Type 'x' to remove the tag at the focus point.</li>
+                </ul>
+                <p><i>Possible button actions</i></p>
+                <ul>
+                <li>Pulldown menus alter the view.</li>
+                <li>The up/down arrow buttons pan up and down (in pressure).</li>
+                <li>The '-' and '+' buttons zoom in and out with respect to the present centre.</li>
+                </ul>"
+            } else {
+                "<p><i>Possible pointer actions</i></p>
+                <ul>
+                <li>Click far from data, zoom, or pan to unselect focus point.</li>
+                </ul>
+                <p><i>Possible keyboard actions</i></p>
+                <ul>
+                <li>Type a digit to tag the focus point. (The red text lists possible digits.)</li>
+                </ul>
+                <p><i>Possible button actions</i></p>
+                <ul>
+                <li>Pulldown menus alter the view.</li>
+                <li>The up/down arrow buttons pan up and down (in pressure).</li>
+                <li>The '-' and '+' buttons zoom in and out with respect to the present centre.</li>
+                </ul>"
+            }
+        }
+    }
     createDatabase(dbname=dbname, tagScheme=tagScheme)
-    dmsg("   ... done\n")
     values <- reactiveValues(brush=NULL)
     ctd <- oce::read.oce(file)
     data <- list(pressure=ctd@data$pressure, salinity=ctd@data$salinity, temperature=ctd@data$temperature)
@@ -274,7 +313,7 @@ server <- function(input, output, session) {
     data$yProfile <- data$pressure
     data$ylabProfile <- resizableLabel("p")
     data$sigmaTheta <- swSigmaTheta(ctd, eos="unesco")
-    dmsg("about to define state\n")
+    dmsg1("About to define state.\n")
     state <- reactiveValues(
         step=0L,
         file=file,
@@ -282,14 +321,19 @@ server <- function(input, output, session) {
         ctd=ctd,
         data=data,
         ndata=length(data$pressure),
-        level=NULL,
+        focusLevel=NULL,
         usr=c(0, 1, 0, 1),
         visible=rep(TRUE, length(data$pressure)) # all points visible at the start
         )
 
     focusIsTagged <- function()
     {
-        !is.null(state$level) && (state$level %in% getTags(state$file, dbname=dbname)$level)
+        !is.null(state$focusLevel) && (state$focusLevel %in% getTags(state$file, dbname=dbname)$level)
+    }
+
+    focusIsVisible <- function()
+    {
+        !is.null(state$focusLevel) && state$visible[state$focusLevel]
     }
 
     observeEvent(input$clear,
@@ -298,20 +342,26 @@ server <- function(input, output, session) {
             shinyjs::runjs("document.getElementById('plot_brush').remove()")
         })
 
-    observeEvent(input$help,
-        {
-            showModal(modalDialog(title=NULL,
-                    size="xl", HTML(overallHelp), easyClose=TRUE))
-        })
-
     observeEvent(input$quit,
         {
             stopApp()
         })
 
+    observeEvent(input$help,
+        {
+            showModal(modalDialog(title=NULL,
+                    size="xl", HTML(overallHelp()), easyClose=TRUE))
+        })
+
+    observeEvent(input$debug,
+        {
+            debug <<- max(min(2, as.integer(input$debug)), 0)
+        })
+
     observeEvent(input$goUp,
         {
             dmsg("responding to 'goUp'\n")
+            state$focusLevel <- NULL # remove focus
             if (!head(state$visible, 1)) {
                 limits <- visibleToLimits(state$visible)
                 span <- diff(limits)
@@ -323,6 +373,7 @@ server <- function(input, output, session) {
     observeEvent(input$goDown,
         {
             dmsg("responding to 'goDown'\n")
+            state$focusLevel <- NULL # remove focus
             if (!tail(state$visible, 1)) {
                 limits <- visibleToLimits(state$visible)
                 span <- diff(limits)
@@ -334,6 +385,7 @@ server <- function(input, output, session) {
     observeEvent(input$zoomIn,
         {
             dmsg("responding to 'zoomIn'\n")
+            state$focusLevel <- NULL # remove focus
             limits <- visibleToLimits(state$visible)
             dmsg(vectorShow(limits))
             span <- max(diff(limits) / 4, 10)
@@ -345,6 +397,7 @@ server <- function(input, output, session) {
     observeEvent(input$zoomOut,
         {
             dmsg("responding to 'zoomOut'\n")
+            state$focusLevel <- NULL # remove focus
             limits <- visibleToLimits(state$visible)
             span <- max(diff(limits) / 4, 10)
             limits <- limitsTrim(limits + c(-span, span), state$ndata)
@@ -354,30 +407,42 @@ server <- function(input, output, session) {
     observeEvent(input$click,
         {
             closest <- findNearestLevel(input$click$x, input$click$y, state$usr, state$data, input$view)
-            dmsg(sprintf("click yielded nearest=%d, relativeDistance=%.1f%%\n", closest$level, 100*closest$relativeDistance))
-            state$level <- if (closest$relativeDistance < clickDistanceCriterion) closest$nearest else NULL
+            dmsg(sprintf("click yielded nearest=%d, relativeDistance=%.1f%%\n", closest$focusLevel, 100*closest$relativeDistance))
+            state$focusLevel <- if (closest$relativeDistance < clickDistanceCriterion) closest$nearest else NULL
         })
 
-    # Define visibility based on the pressure limits of brushed region
+    # Handle brushing events.  First, clear the focus.  Then set visibility
+    # based on the pressure limits of brushed region.
     observeEvent(input$brush,
         {
-            #dmsg(vectorShow(input$brush$xmin))
-            #dmsg(vectorShow(input$brush$xmax))
-            #dmsg(vectorShow(input$brush$ymin))
-            #dmsg(vectorShow(input$brush$ymax))
-            #dmsg(vectorShow(input$view))
+            state$focusLevel <- NULL
             if (grepl("profile", input$view)) {
                 dmsg("brushed on a profile (ignoring x extend of brush)\n")
                 visible <- with(input$brush, ymin <= data$yProfile & data$yProfile <= ymax)
             } else if (input$view == "TS") {
                 dmsg("brushed on a TS diagram\n")
+                xBrushSpan <- input$brush$xmax - input$brush$xmin
+                yBrushSpan <- input$brush$ymax - input$brush$ymin
+                xFraction <- with(input$brush, (xmax-xmin) / (domain$right - domain$left))
+                yFraction <- with(input$brush, (ymax-ymin) / (domain$top - domain$bottom))
+                dmsg1(vectorShow(xFraction))
+                dmsg1(vectorShow(yFraction))
+                fraction <- sqrt(xFraction^2 + yFraction^2)
+                dmsg1("  ", vectorShow(fraction))
+                if (fraction < brushCriterion) {
+                    dmsg1(sprintf("  ignoring brush, since it occupies only %.2f%% of plot area (criterion is %.2f%%)\n",
+                            100*fraction, 100*brushCriterion))
+                    return()
+                }
                 x <- state$data$salinity
                 y <- state$data$theta
                 # Find first and last pressures spanning box, so TS extrema are retained.
-                nvisible <- length(x)
+                npoints <- length(x)
                 visible <- with(input$brush, xmin <= x & x <= xmax & ymin <= y & y <= ymax)
                 first <- which(visible)[1]
+                dmsg2(vectorShow(first))
                 last <- length(visible) + 1 - which(rev(visible))[1]
+                dmsg2(vectorShow(last))
                 if (last <= 0)
                     stop("bug: last is 0 or negative")
                 if (first > last) {
@@ -389,88 +454,72 @@ server <- function(input, output, session) {
                     stop("bug: first must be positive, but it is ", first)
                 if (last <= 0)
                     stop("bug: last must be positive, but it is ", last)
-                dmsg(sprintf("first=%d last=%d\n", first, last))
-                visible <- rep(FALSE, nvisible)
+                dmsg1(sprintf("  first=%d last=%d\n", first, last))
+                visible <- rep(FALSE, npoints)
                 visible[first:last] <- TRUE
             }
-            #print(input$brush, file=stderr())
-            sumvisible <- sum(state$visible)
-            sumvisiblenew <- sum(visible)
-            if (sumvisiblenew > 0.1 * sumvisible) {
-                state$visible <<- visible
-            } else {
-                dmsg(" brush region is too small (", round(100*sumvisiblenew/sumvisible, 1), "%%) to obey")
-            }
+            state$visible <<- visible
         })
 
     observeEvent(input$keypressTrigger,
         {
+            dmsg1(vectorShow(input$keypress))
             key <- intToUtf8(input$keypress)
-            #dmsg(key, "\n")
+            dmsg(vectorShow(key))
+            #if (key == "?") {
+            #    showModal(modalDialog(title=NULL,
+            #            size="xl", HTML(overallHelp()), easyClose=TRUE))
+            #} else if (key %in% as.character(0:9)) {
             if (key %in% as.character(0:9)) {
-                if (is.null(state$level)) {
+                if (is.null(state$focusLevel)) {
                     showNotification("No focus points")
                 } else {
-                    dmsg("responding to '", key, "' click for tagging\n")
-                    if (state$visible[state$level]) {
-                        #dmsg("  visible. should tag at level ", state$level, "\n")
+                    dmsg1("responding to '", key, "' click for tagging\n")
+                    if (state$visible[state$focusLevel]) {
+                        #dmsg("  visible. should tag at level ", state$focusLevel, "\n")
                         #dmsg("  analystName=\"", state$analystName, "\"\n")
                         #dmsg("  file=\"", state$file, "\"\n")
                         dmsg("about to saveTag()\n")
-                        saveTag(file=state$file, level=state$level, tagCode=as.integer(key),
+                        saveTag(file=state$file, level=state$focusLevel, tagCode=as.integer(key),
                             tagScheme=tagScheme, analyst=state$analyst, dbname=dbname)
-                        dmsg("    ... done with saveTag()\n")
+                        dmsg1("    ... done with saveTag()\n")
                         state$step <<- state$step + 1 # other shiny elements notice this
                     } else {
                         showNotification("No focus points in current view")
                     }
                 }
-            } else if (key == "i") {
-                if (!is.null(input$hover$x)) {
-                    dmsg("responding to 'i' click for zooming in\n")
-                    nearestLevel <- findNearestLevel(input$hover$x, input$hover$y, state$usr, state$data, input$view)
-                    span <- sum(state$visible)
-                    if (span > default$focus$minimumSpan) {
-                        span <- span / 4
-                        limits <- limitsTrim(nearestLevel + c(-span/2, span/2), state$ndata)
-                        state$visible <- limitsToVisible(limits, state$ndata)
-                    }
-                }
-            } else if (key == "o") {
-                dmsg("responding to 'o' click for zooming out\n")
-                limits <- visibleToLimits(state$visible)
-                span <- diff(limits)
-                limits <- limitsTrim(limits + c(-span, span), state$ndata)
-                state$visible <- limitsToVisible(limits, state$ndata)
-            } else if (key == "O") {
-                dmsg("responding to 'O' click to return to full-scale\n")
-                state$visible <- rep(TRUE, state$ndata)
-            } else if (key == "j") {
-                dmsg("responding to 'j' click for moving down in water column\n")
-                if (!tail(state$visible, 1)) {
-                    limits <- visibleToLimits(state$visible)
-                    span <- diff(limits)
-                    limits <- limitsTrim(limits + (1/4)*span, state$ndata)
-                    state$visible <- limitsToVisible(limits, state$ndata)
-                }
-            } else if (key == "k") {
-                dmsg("responding to 'k' click for moving up in water column\n")
-                if (!head(state$visible, 1)) {
-                    limits <- visibleToLimits(state$visible)
-                    span <- diff(limits)
-                    limits <- limitsTrim(limits - (1/4)*span, state$ndata)
-                    state$visible <- limitsToVisible(limits, state$ndata)
-                }
+            #} else if (key == "d") {
+            #    msg(vectorShow(debug))
+            #    debug <<- if (debug > 0) 0 else 1
+            #    msg(" ->", vectorShow(debug))
+            #} else if (key == "O") {
+            #    dmsg("responding to 'O' click to return to full-scale\n")
+            #    state$visible <- rep(TRUE, state$ndata)
             } else if (key == "x") {
-                dmsg("responding to 'x' to remove tag if focussed\n")
+                dmsg("responding to 'x' to remove tag on focus point\n")
                 if (focusIsTagged()) {
-                    removeTag(file=state$file, level=state$level, dbname=dbname)
+                    dmsg("about to untag at level ", state$focusLevel, "\n")
+                    removeTag(file=state$file, level=state$focusLevel, dbname=dbname)
                     state$step <<- state$step + 1 # other shiny elements notice this
                 }
-            } else if (key == "u") {
-                dmsg("responding to 'u' to remove tag if focussed\n")
-                state$level <<- NULL
             }
+            #} else if (key == "j") {
+            #    dmsg("responding to 'j' click for moving down in water column\n")
+            #    if (!tail(state$visible, 1)) {
+            #        limits <- visibleToLimits(state$visible)
+            #        span <- diff(limits)
+            #        limits <- limitsTrim(limits + (1/4)*span, state$ndata)
+            #        state$visible <- limitsToVisible(limits, state$ndata)
+            #    }
+            #} else if (key == "k") {
+            #    dmsg("responding to 'k' click for moving up in water column\n")
+            #    if (!head(state$visible, 1)) {
+            #        limits <- visibleToLimits(state$visible)
+            #        span <- diff(limits)
+            #        limits <- limitsTrim(limits - (1/4)*span, state$ndata)
+            #        state$visible <- limitsToVisible(limits, state$ndata)
+            #    }
+            #}
         })
 
     observeEvent(input$yProfile, {
@@ -484,7 +533,7 @@ server <- function(input, output, session) {
         }
     })
 
-    #output$levelMsg <- renderText(
+    #output$focusLevelMsg <- renderText(
     #    {
     #        #if (!is.null(input$hover$x)) {
     #        #    if (input$view == "T profile") {
@@ -512,7 +561,7 @@ server <- function(input, output, session) {
             tags <- tags[tags$file == file, ]
             ntags <- nrow(tags)
             tagMsg <- pluralize(nrow(tags), "tag")
-            #focusMsg <- if (focusIsTagged()) paste0("| focus, at level ", state$level, ", is tagged") else ""
+            #focusMsg <- if (focusIsTagged()) paste0("| focus, at level ", state$focusLevel, ", is tagged") else ""
             pvisible <- data$pressure[state$visible]
             #viewMsg <- sprintf("%.1f to %.1f dbar", min(pvisible), max(pvisible))
             #paste0(file, " | ", getDatabaseName(), " | ", tagMsg, " ", focusMsg, " | ", viewMsg)
@@ -521,10 +570,23 @@ server <- function(input, output, session) {
 
     output$tagHint <- renderText(
         {
-            if (!is.null(state$level))
-                paste("Possible tags: ", paste(tagScheme$tagCode, tagScheme$tagLabel, collapse=" ", sep="="))
-            else
-                "Click the mouse near a point to tag it (undo by clicking far from a point)"
+            if (!is.null(state$focusLevel)) {
+                tags <- getTags(state$file, dbname=dbname)
+                if (state$focusLevel %in% tags$level) {
+                    focusTag <- tags[tags$level == state$focusLevel, "tagLabel"]
+                    sprintf("Level %d (%.1f dbar) tagged \"%s\"; type 'x' to remove tag.",
+                        state$focusLevel,
+                        data$pressure[state$focusLevel],
+                        focusTag)
+                } else {
+                    sprintf("Level %d (%.1f dbar): may tag %s.",
+                        state$focusLevel,
+                        data$pressure[state$focusLevel],
+                        paste(tagScheme$tagCode, tagScheme$tagLabel, collapse=", ", sep=" for "))
+                }
+            } else {
+                "Click mouse near a point to focus on it (perhaps to tag it)."
+            }
         })
 
     output$plotPanel <- renderUI(
@@ -547,9 +609,9 @@ server <- function(input, output, session) {
                 cex=default$Tprofile$cex, col=default$Tprofile$col, lwd=default$Tprofile$lwd, pch=default$Tprofile$pch,
                 axes=FALSE, xlab="", ylab="")
             state$usr <<- par("usr")
-            if (!is.null(state$level)) {
+            if (!is.null(state$focusLevel)) {
                 with(default$focus,
-                    points(state$data$theta[state$level], state$data$yProfile[state$level],
+                    points(state$data$theta[state$focusLevel], state$data$yProfile[state$focusLevel],
                         cex=cex, col=col, lwd=lwd, pch=pch))
             }
             tags <- getTags(state$file, dbname=dbname)
@@ -572,10 +634,10 @@ server <- function(input, output, session) {
                 cex=default$Sprofile$cex, col=default$Sprofile$col, lwd=default$Sprofile$lwd, pch=default$Sprofile$pch,
                 axes=FALSE, xlab="", ylab="")
             state$usr <<- par("usr")
-            if (!is.null(state$level)) {
-                dmsg("S profile... ", vectorShow(state$level))
+            if (!is.null(state$focusLevel)) {
+                dmsg("S profile... ", vectorShow(state$focusLevel))
                 with(default$focus,
-                    points(state$data$salinity[state$level], state$data$yProfile[state$level],
+                    points(state$data$salinity[state$focusLevel], state$data$yProfile[state$focusLevel],
                         cex=cex, col=col, lwd=lwd, pch=pch))
             }
             tags <- getTags(state$file, dbname=dbname)
@@ -599,9 +661,9 @@ server <- function(input, output, session) {
                 cex=default$Tprofile$cex, col=default$Tprofile$col, lwd=default$Tprofile$lwd, pch=default$Tprofile$pch,
                 axes=FALSE, xlab="", ylab="")
             state$usr <<- par("usr")
-            if (!is.null(state$level)) {
+            if (!is.null(state$focusLevel)) {
                 with(default$focus,
-                    points(state$data$sigmaTheta[state$level], state$data$yProfile[state$level],
+                    points(state$data$sigmaTheta[state$focusLevel], state$data$yProfile[state$focusLevel],
                         cex=cex, col=col, lwd=lwd, pch=pch))
             }
             tags <- getTags(state$file, dbname=dbname)
@@ -630,9 +692,9 @@ server <- function(input, output, session) {
             points(state$data$salinity, state$data$theta, type=input$plotType,
                 cex=default$TS$cex, col=default$TS$col, lwd=default$TS$lwd, pch=default$TS$pch)
             state$usr <<- par("usr")
-            if (!is.null(state$level)) {
+            if (!is.null(state$focusLevel)) {
                 with(default$focus,
-                    points(state$data$salinity[state$level], state$data$theta[state$level],
+                    points(state$data$salinity[state$focusLevel], state$data$theta[state$focusLevel],
                         cex=cex, col=col, lwd=lwd, pch=pch))
             }
             tags <- getTags(state$file, dbname=dbname)

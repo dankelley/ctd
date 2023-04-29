@@ -8,7 +8,7 @@ ctdTag(
   file,
   dbname = NULL,
   tagScheme = NULL,
-  height = 400,
+  height = 550,
   clickDistanceCriterion = 0.02,
   debug = 0
 )

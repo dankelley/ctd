@@ -45,7 +45,7 @@
 #' @author Dan Kelley
 #'
 #' @export
-ctdTag <- function(file, dbname=NULL, tagScheme=NULL, height=400, clickDistanceCriterion=0.02, debug=0)
+ctdTag <- function(file, dbname=NULL, tagScheme=NULL, height=550, clickDistanceCriterion=0.02, debug=0)
 {
     if (missing(file))
         stop("must give 'file'")
