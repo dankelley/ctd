@@ -418,7 +418,7 @@ server <- function(input, output, session) {
             state$focusLevel <- NULL
             if (grepl("profile", input$view)) {
                 dmsg("brushed on a profile (ignoring x extend of brush)\n")
-                visible <- with(input$brush, ymin <= data$yProfile & data$yProfile <= ymax)
+                visible <- with(input$brush, ymin <= state$data$yProfile & state$data$yProfile <= ymax)
             } else if (input$view == "TS") {
                 dmsg("brushed on a TS diagram\n")
                 xBrushSpan <- input$brush$xmax - input$brush$xmin
@@ -523,13 +523,15 @@ server <- function(input, output, session) {
         })
 
     observeEvent(input$yProfile, {
-        #dmsg("observed input$yProfile=\"", input$yProfile, "\"\n")
+        dmsg("observed input$yProfile=\"", input$yProfile, "\"\n")
         if (input$yProfile == "pressure") {
-            data$yProfile <<- data$pressure
-            data$ylabProfile <<- resizableLabel("p")
+            state$data$yProfile <<- data$pressure
+            state$data$ylabProfile <<- resizableLabel("p")
+            dmsg1("    ", vectorShow(data$yProfile))
         } else {
-            data$yProfile <<- data$sigmaTheta
-            data$ylabProfile <<- expression(sigma[theta]* " ["* kg/m^3*"]")
+            state$data$yProfile <<- data$sigmaTheta
+            state$data$ylabProfile <<- expression(sigma[theta]* " ["* kg/m^3*"]")
+            dmsg1("    ", vectorShow(data$yProfile))
         }
     })
 
@@ -565,7 +567,7 @@ server <- function(input, output, session) {
             pvisible <- data$pressure[state$visible]
             #viewMsg <- sprintf("%.1f to %.1f dbar", min(pvisible), max(pvisible))
             #paste0(file, " | ", getDatabaseName(), " | ", tagMsg, " ", focusMsg, " | ", viewMsg)
-            paste0(file, " | ", getDatabaseName(), " | ", tagMsg)
+            paste0(file, " | ", dbname, " | ", tagMsg)
         })
 
     output$tagHint <- renderText(
@@ -604,7 +606,7 @@ server <- function(input, output, session) {
         if (input$view == "T profile") {
             par(mar=c(1, 3.3, 3, 1.5), mgp=c(1.9, 0.5, 0))
             x <- state$data$theta[state$visible]
-            y <- data$yProfile[state$visible]
+            y <- state$data$yProfile[state$visible]
             plot(x, y, ylim=rev(range(y)), yaxs="i", type=input$plotType,
                 cex=default$Tprofile$cex, col=default$Tprofile$col, lwd=default$Tprofile$lwd, pch=default$Tprofile$pch,
                 axes=FALSE, xlab="", ylab="")
@@ -656,7 +658,7 @@ server <- function(input, output, session) {
             par(mar=c(1, 3.3, 3, 1), mgp=c(1.9, 0.5, 0))
             dmsg("doing sigmaTheta profile")
             x <- state$data$sigmaTheta[state$visible]
-            y <- data$yProfile[state$visible]
+            y <- state$data$yProfile[state$visible]
             plot(x, y, ylim=rev(range(y)), yaxs="i", type=input$plotType,
                 cex=default$Tprofile$cex, col=default$Tprofile$col, lwd=default$Tprofile$lwd, pch=default$Tprofile$pch,
                 axes=FALSE, xlab="", ylab="")
