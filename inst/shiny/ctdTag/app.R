@@ -182,38 +182,44 @@ ui <- fluidPage(
     shinyjs::useShinyjs(),
     style="margin-bottom:1px; margin-top:0px; color:red; padding-top:0px; padding-bottom:0px;",
     tags$script('$(document).on("keypress", function (e) { Shiny.onInputChange("keypress", e.which); Shiny.onInputChange("keypressTrigger", Math.random()); });'),
-    fluidRow(
-        style="background:#e6f3ff;cursor:crosshair;col=blue;",
-        column(1, actionButton("quit", "Quit")),
-        column(1, actionButton("help", "Help")),
-        column(2, selectInput("debug", label=NULL,
-                choices=c("No debugging"=0, "Min. debugging"=1, "Max. debugging"=2),
-                selected=0)),
-        column(2, selectInput("view", label=NULL,
-                choices=c("S prof."="S profile",
-                    "T prof."="T profile",
-                    "sigmaTheta prof."="sigmaTheta profile",
-                    "TS"="TS"),
-                selected="T profile")),
-        column(2, selectInput("yProfile", label=NULL,
-                choices=c("pressure"="pressure", "sigma-theta"="sigmaTheta"),
-                selected="pressure")),
-        column(2, selectInput("plotType", label=NULL,
-                choices=c("line"="l", "points"="p", "both"="o"),
-                selected="o")),
-        column(1,  actionButton("clear", "Clear brush"))),
-    fluidRow(
-        style="background:#e6f3ff;cursor:crosshair;color:black;margin-top:0px;",
-        column(9, uiOutput("tagMsg")),
-        actionButton("goDown", HTML("&darr;")),
-        actionButton("goUp", HTML("&uarr;")),
-        actionButton("zoomOut", HTML("-")),
-        actionButton("zoomIn", HTML("+"))),
-    fluidRow(
-        style="background:#e6f3ff;cursor:crosshair;color:red;margin-top:0px;",
-        column(12, uiOutput("tagHint"))),
-    fluidRow(
-        uiOutput("plotPanel")))
+    tabsetPanel(type="tabs", id="tabselected",
+        tabPanel("Analysis", value=1),
+        tabPanel("Summary", value=2)),
+    conditionalPanel("input.tabselected==1",
+        fluidRow(
+            style="background:#e6f3ff;cursor:crosshair;col=blue;",
+            column(1, actionButton("quit", "Quit")),
+            column(1, actionButton("help", "Help")),
+            column(2, selectInput("debug", label=NULL,
+                    choices=c("debug=0"=0, "debug=1"=1, "debug=2"=2),
+                    selected=0)),
+            column(2, selectInput("view", label=NULL,
+                    choices=c("S prof."="S profile",
+                        "T prof."="T profile",
+                        "sigmaTheta prof."="sigmaTheta profile",
+                        "TS"="TS"),
+                    selected="T profile")),
+            column(2, selectInput("yProfile", label=NULL,
+                    choices=c("pressure"="pressure", "sigma-theta"="sigmaTheta"),
+                    selected="pressure")),
+            column(2, selectInput("plotType", label=NULL,
+                    choices=c("type='l'"="l", "type='p'"="p", "type='o'"="o"),
+                    selected="o")),
+            column(1,  actionButton("clear", "Clear brush"))),
+        fluidRow(
+            style="background:#e6f3ff;cursor:crosshair;color:black;margin-top:0px;",
+            column(9, uiOutput("tagMsg")),
+            actionButton("goDown", HTML("&darr;")),
+            actionButton("goUp", HTML("&uarr;")),
+            actionButton("zoomOut", HTML("-")),
+            actionButton("zoomIn", HTML("+"))),
+        fluidRow(
+            style="background:#e6f3ff;cursor:crosshair;color:red;margin-top:0px;",
+            column(12, uiOutput("tagHint"))),
+        fluidRow(
+            uiOutput("plotPanel"))),
+    conditionalPanel("input.tabselected==2",
+        fluidRow(uiOutput("summary"))))
 
 getUserName <- function()
 {
@@ -591,6 +597,19 @@ server <- function(input, output, session) {
             }
         })
 
+    output$summary <- renderUI(
+        {
+            # FIXME: how to render more info, e.g. dbname, present file, etc?
+            con <- dbConnect(SQLite(), dbname)
+            tags <- dbReadTable(con, "tags")
+            dbDisconnect(con)
+            # Make time readible
+            t <- numberAsPOSIXct(tags$analysisTime)
+            tags$analysisTime <- format(t, "%Y-%m-%d %H:%M:%S UTC")
+            #renderTable(tags)
+            renderDataTable(tags)
+        })
+ 
     output$plotPanel <- renderUI(
         {
             state$step # cause a shiny update
