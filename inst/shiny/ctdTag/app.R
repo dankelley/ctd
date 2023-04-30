@@ -234,6 +234,7 @@ getDatabaseName <- function(prefix="ctd_tag")
     file.path(paste0(prefix, "_", getUserName(), ".db"))
 
 server <- function(input, output, session) {
+    plotting <- FALSE
     # extract shiny options (all are required) {
     dbname <- getShinyOption("dbname", getDatabaseName())
     file <- getShinyOption("file", NULL)
@@ -332,14 +333,19 @@ server <- function(input, output, session) {
         visible=rep(TRUE, length(data$pressure)) # all points visible at the start
         )
 
+    focusIsSet <- function()
+    {
+        !is.null(state$focusLevel)
+    }
+
     focusIsTagged <- function()
     {
-        !is.null(state$focusLevel) && (state$focusLevel %in% getTags(state$file, dbname=dbname)$level)
+        focusIsSet() && (state$focusLevel %in% getTags(state$file, dbname=dbname)$level)
     }
 
     focusIsVisible <- function()
     {
-        !is.null(state$focusLevel) && state$visible[state$focusLevel]
+        focusIsSet() && state$visible[state$focusLevel]
     }
 
     observeEvent(input$clear,
@@ -467,65 +473,47 @@ server <- function(input, output, session) {
             state$visible <<- visible
         })
 
+    # Ignore key presses if a plot is being drawn, perhaps helping with issue 3.
+    # https://github.com/dankelley/ctd/issues/3
     observeEvent(input$keypressTrigger,
         {
-            dmsg1(vectorShow(input$keypress))
-            key <- intToUtf8(input$keypress)
-            dmsg(vectorShow(key))
-            #if (key == "?") {
-            #    showModal(modalDialog(title=NULL,
-            #            size="xl", HTML(overallHelp()), easyClose=TRUE))
-            #} else if (key %in% as.character(0:9)) {
-            if (key %in% as.character(0:9)) {
-                if (is.null(state$focusLevel)) {
-                    showNotification("No focus points")
-                } else {
+            if (!plotting) {
+                msg("keypress being handled since not plotting\n")
+                dmsg1(vectorShow(input$keypress))
+                key <- intToUtf8(input$keypress)
+                dmsg(vectorShow(key))
+                if (key %in% as.character(0:9) && focusIsVisible() && !focusIsTagged()) {
                     dmsg1("responding to '", key, "' click for tagging\n")
-                    if (state$visible[state$focusLevel]) {
-                        #dmsg("  visible. should tag at level ", state$focusLevel, "\n")
-                        #dmsg("  analystName=\"", state$analystName, "\"\n")
-                        #dmsg("  file=\"", state$file, "\"\n")
-                        dmsg("about to saveTag()\n")
-                        saveTag(file=state$file, level=state$focusLevel, tagCode=as.integer(key),
-                            tagScheme=tagScheme, analyst=state$analyst, dbname=dbname)
-                        dmsg1("    ... done with saveTag()\n")
-                        state$step <<- state$step + 1 # other shiny elements notice this
-                    } else {
-                        showNotification("No focus points in current view")
-                    }
-                }
-            #} else if (key == "d") {
-            #    msg(vectorShow(debug))
-            #    debug <<- if (debug > 0) 0 else 1
-            #    msg(" ->", vectorShow(debug))
-            #} else if (key == "O") {
-            #    dmsg("responding to 'O' click to return to full-scale\n")
-            #    state$visible <- rep(TRUE, state$ndata)
-            } else if (key == "x") {
-                dmsg("responding to 'x' to remove tag on focus point\n")
-                if (focusIsTagged()) {
+                    dmsg("about to saveTag()\n")
+                    saveTag(file=state$file, level=state$focusLevel, tagCode=as.integer(key),
+                        tagScheme=tagScheme, analyst=state$analyst, dbname=dbname)
+                    dmsg1("    ... done with saveTag()\n")
+                    state$step <<- state$step + 1 # other shiny elements notice this
+                } else if (key == "x" && focusIsTagged()) {
                     dmsg("about to untag at level ", state$focusLevel, "\n")
                     removeTag(file=state$file, level=state$focusLevel, dbname=dbname)
                     state$step <<- state$step + 1 # other shiny elements notice this
                 }
+                #} else if (key == "j") {
+                #    dmsg("responding to 'j' click for moving down in water column\n")
+                #    if (!tail(state$visible, 1)) {
+                #        limits <- visibleToLimits(state$visible)
+                #        span <- diff(limits)
+                #        limits <- limitsTrim(limits + (1/4)*span, state$ndata)
+                #        state$visible <- limitsToVisible(limits, state$ndata)
+                #    }
+                #} else if (key == "k") {
+                #    dmsg("responding to 'k' click for moving up in water column\n")
+                #    if (!head(state$visible, 1)) {
+                #        limits <- visibleToLimits(state$visible)
+                #        span <- diff(limits)
+                #        limits <- limitsTrim(limits - (1/4)*span, state$ndata)
+                #        state$visible <- limitsToVisible(limits, state$ndata)
+                #    }
+                #}
+            } else {
+                msg("keypress ignored, since still plotting\n")
             }
-            #} else if (key == "j") {
-            #    dmsg("responding to 'j' click for moving down in water column\n")
-            #    if (!tail(state$visible, 1)) {
-            #        limits <- visibleToLimits(state$visible)
-            #        span <- diff(limits)
-            #        limits <- limitsTrim(limits + (1/4)*span, state$ndata)
-            #        state$visible <- limitsToVisible(limits, state$ndata)
-            #    }
-            #} else if (key == "k") {
-            #    dmsg("responding to 'k' click for moving up in water column\n")
-            #    if (!head(state$visible, 1)) {
-            #        limits <- visibleToLimits(state$visible)
-            #        span <- diff(limits)
-            #        limits <- limitsTrim(limits - (1/4)*span, state$ndata)
-            #        state$visible <- limitsToVisible(limits, state$ndata)
-            #    }
-            #}
         })
 
     observeEvent(input$yProfile, {
@@ -620,115 +608,131 @@ server <- function(input, output, session) {
         })
 
     output$plot <- renderPlot({
+        plotting <- TRUE
         state$step # cause a shiny update
-        input$yProfile # cause a shiny update
+        #??? input$yProfile # cause a shiny update
         if (input$view == "T profile") {
             par(mar=c(1, 3.3, 3, 1.5), mgp=c(1.9, 0.5, 0))
             x <- state$data$theta[state$visible]
             y <- state$data$yProfile[state$visible]
-            plot(x, y, ylim=rev(range(y)), yaxs="i", type=input$plotType,
-                cex=default$Tprofile$cex, col=default$Tprofile$col, lwd=default$Tprofile$lwd, pch=default$Tprofile$pch,
-                axes=FALSE, xlab="", ylab="")
-            state$usr <<- par("usr")
-            if (!is.null(state$focusLevel)) {
-                with(default$focus,
-                    points(state$data$theta[state$focusLevel], state$data$yProfile[state$focusLevel],
-                        cex=cex, col=col, lwd=lwd, pch=pch))
+            if (length(x) > 0L && length(y) > 0L) {
+                msg("about to plot. (plotting=", plotting, "\n")
+                msg("    ", vectorShow(state$visible))
+                msg("    ", vectorShow(x))
+                msg("    ", vectorShow(y))
+                msg("    range(y) = ", paste(range(y), collapse=" "), "\n")
+                plot(x, y, ylim=rev(range(y)), yaxs="i", type=input$plotType,
+                    cex=default$Tprofile$cex, col=default$Tprofile$col, lwd=default$Tprofile$lwd, pch=default$Tprofile$pch,
+                    axes=FALSE, xlab="", ylab="")
+                msg("OK plot\n")
+                state$usr <<- par("usr")
+                if (!is.null(state$focusLevel)) {
+                    with(default$focus,
+                        points(state$data$theta[state$focusLevel], state$data$yProfile[state$focusLevel],
+                            cex=cex, col=col, lwd=lwd, pch=pch))
+                }
+                tags <- getTags(state$file, dbname=dbname)
+                if (nrow(tags) > 0) {
+                    with(default$tag,
+                        points(state$data$theta[tags$level], state$data$yProfile[tags$level],
+                            cex=cex, pch=pch, lwd=lwd, col=col))
+                    text(state$data$theta[tags$level], state$data$yProfile[tags$level], tags$tagLabel, col=2, pos=4)
+                }
+                axis(side=2)
+                axis(side=3)
+                mtext(data$ylab, side=2, line=1.5)
+                mtext(resizableLabel("theta"), side=3, line=1.5)
+                box()
             }
-            tags <- getTags(state$file, dbname=dbname)
-            if (nrow(tags) > 0) {
-                with(default$tag,
-                    points(state$data$theta[tags$level], state$data$yProfile[tags$level],
-                        cex=cex, pch=pch, lwd=lwd, col=col))
-                text(state$data$theta[tags$level], state$data$yProfile[tags$level], tags$tagLabel, col=2, pos=4)
-            }
-            axis(side=2)
-            axis(side=3)
-            mtext(data$ylab, side=2, line=1.5)
-            mtext(resizableLabel("theta"), side=3, line=1.5)
-            box()
         } else if (input$view == "S profile") {
             par(mar=c(1, 3, 3, 1), mgp=c(1.9, 0.5, 0))
             x <- state$data$salinity[state$visible]
             y <- state$data$yProfile[state$visible]
-            plot(x, y, ylim=rev(range(y)), yaxs="i", type=input$plotType,
-                cex=default$Sprofile$cex, col=default$Sprofile$col, lwd=default$Sprofile$lwd, pch=default$Sprofile$pch,
-                axes=FALSE, xlab="", ylab="")
-            state$usr <<- par("usr")
-            if (!is.null(state$focusLevel)) {
-                dmsg("S profile... ", vectorShow(state$focusLevel))
-                with(default$focus,
-                    points(state$data$salinity[state$focusLevel], state$data$yProfile[state$focusLevel],
-                        cex=cex, col=col, lwd=lwd, pch=pch))
+            if (length(x) > 0L && length(y) > 0L) {
+                plot(x, y, ylim=rev(range(y)), yaxs="i", type=input$plotType,
+                    cex=default$Sprofile$cex, col=default$Sprofile$col, lwd=default$Sprofile$lwd, pch=default$Sprofile$pch,
+                    axes=FALSE, xlab="", ylab="")
+                state$usr <<- par("usr")
+                if (!is.null(state$focusLevel)) {
+                    dmsg("S profile... ", vectorShow(state$focusLevel))
+                    with(default$focus,
+                        points(state$data$salinity[state$focusLevel], state$data$yProfile[state$focusLevel],
+                            cex=cex, col=col, lwd=lwd, pch=pch))
+                }
+                tags <- getTags(state$file, dbname=dbname)
+                if (nrow(tags) > 0) {
+                    with(default$tag,
+                        points(state$data$salinity[tags$level], state$data$yProfile[tags$level],
+                            cex=cex, pch=pch, lwd=lwd, col=col))
+                    text(state$data$salinity[tags$level], state$data$yProfile[tags$level], tags$tagLabel, col=2, pos=4)
+                }
+                axis(side=2)
+                axis(side=3)
+                mtext(data$ylab, side=2, line=1.5)
+                mtext(resizableLabel("S"), side=3, line=1.5)
+                box()
             }
-            tags <- getTags(state$file, dbname=dbname)
-            if (nrow(tags) > 0) {
-                with(default$tag,
-                    points(state$data$salinity[tags$level], state$data$yProfile[tags$level],
-                        cex=cex, pch=pch, lwd=lwd, col=col))
-                text(state$data$salinity[tags$level], state$data$yProfile[tags$level], tags$tagLabel, col=2, pos=4)
-            }
-            axis(side=2)
-            axis(side=3)
-            mtext(data$ylab, side=2, line=1.5)
-            mtext(resizableLabel("S"), side=3, line=1.5)
-            box()
         } else if (input$view == "sigmaTheta profile") {
             par(mar=c(1, 3.3, 3, 1), mgp=c(1.9, 0.5, 0))
             dmsg("doing sigmaTheta profile")
             x <- state$data$sigmaTheta[state$visible]
             y <- state$data$yProfile[state$visible]
-            plot(x, y, ylim=rev(range(y)), yaxs="i", type=input$plotType,
-                cex=default$Tprofile$cex, col=default$Tprofile$col, lwd=default$Tprofile$lwd, pch=default$Tprofile$pch,
-                axes=FALSE, xlab="", ylab="")
-            state$usr <<- par("usr")
-            if (!is.null(state$focusLevel)) {
-                with(default$focus,
-                    points(state$data$sigmaTheta[state$focusLevel], state$data$yProfile[state$focusLevel],
-                        cex=cex, col=col, lwd=lwd, pch=pch))
+            if (length(x) > 0L && length(y) > 0L) {
+                plot(x, y, ylim=rev(range(y)), yaxs="i", type=input$plotType,
+                    cex=default$Tprofile$cex, col=default$Tprofile$col, lwd=default$Tprofile$lwd, pch=default$Tprofile$pch,
+                    axes=FALSE, xlab="", ylab="")
+                state$usr <<- par("usr")
+                if (!is.null(state$focusLevel)) {
+                    with(default$focus,
+                        points(state$data$sigmaTheta[state$focusLevel], state$data$yProfile[state$focusLevel],
+                            cex=cex, col=col, lwd=lwd, pch=pch))
+                }
+                tags <- getTags(state$file, dbname=dbname)
+                if (nrow(tags) > 0) {
+                    with(default$tag,
+                        points(state$data$sigmaTheta[tags$level], state$data$yProfile[tags$level],
+                            cex=cex, pch=pch, lwd=lwd, col=col))
+                    text(state$data$sigmaTheta[tags$level], state$data$yProfile[tags$level], tags$tagLabel, col=2, pos=4)
+                }
+                axis(side=2)
+                axis(side=3)
+                mtext(data$ylab, side=2, line=1.5)
+                mtext(resizableLabel("sigmaTheta"), side=3, line=1.5)
+                box()
             }
-            tags <- getTags(state$file, dbname=dbname)
-            if (nrow(tags) > 0) {
-                with(default$tag,
-                    points(state$data$sigmaTheta[tags$level], state$data$yProfile[tags$level],
-                        cex=cex, pch=pch, lwd=lwd, col=col))
-                text(state$data$sigmaTheta[tags$level], state$data$yProfile[tags$level], tags$tagLabel, col=2, pos=4)
-            }
-            axis(side=2)
-            axis(side=3)
-            mtext(data$ylab, side=2, line=1.5)
-            mtext(resizableLabel("sigmaTheta"), side=3, line=1.5)
-            box()
         } else if (input$view == "TS") {
             par(mar=c(1, 3, 3, 1), mgp=c(1.9, 0.5, 0))
             x <- state$data$salinity[state$visible]
             y <- state$data$temperature[state$visible]
-            p <- state$data$pressure[state$visible]
-            ctd <- as.ctd(x, y, p)
-            # Plot empty with visible data, but then add the actual full data.
-            # That way, we can see tagged points even if they are in the 4%
-            # within-plot buffer zone.  (I am not using xaxs="i" etc because
-            # it can put intrusions on the axis.)
-            plotTS(ctd, eos="unesco", type="n")
-            points(state$data$salinity, state$data$theta, type=input$plotType,
-                cex=default$TS$cex, col=default$TS$col, lwd=default$TS$lwd, pch=default$TS$pch)
-            state$usr <<- par("usr")
-            if (!is.null(state$focusLevel)) {
-                with(default$focus,
-                    points(state$data$salinity[state$focusLevel], state$data$theta[state$focusLevel],
-                        cex=cex, col=col, lwd=lwd, pch=pch))
-            }
-            tags <- getTags(state$file, dbname=dbname)
-            if (nrow(tags) > 0) {
-                with(default$tag,
-                    points(state$data$salinity[tags$level], state$data$theta[tags$level],
-                        cex=cex, pch=pch, lwd=lwd, col=col))
-                text(state$data$salinity[tags$level], state$data$theta[tags$level], tags$tagLabel, col=2, pos=4)
+            if (length(x) > 0L && length(y) > 0L) {
+                p <- state$data$pressure[state$visible]
+                ctd <- as.ctd(x, y, p)
+                # Plot empty with visible data, but then add the actual full data.
+                # That way, we can see tagged points even if they are in the 4%
+                # within-plot buffer zone.  (I am not using xaxs="i" etc because
+                # it can put intrusions on the axis.)
+                plotTS(ctd, eos="unesco", type="n")
+                points(state$data$salinity, state$data$theta, type=input$plotType,
+                    cex=default$TS$cex, col=default$TS$col, lwd=default$TS$lwd, pch=default$TS$pch)
+                state$usr <<- par("usr")
+                if (!is.null(state$focusLevel)) {
+                    with(default$focus,
+                        points(state$data$salinity[state$focusLevel], state$data$theta[state$focusLevel],
+                            cex=cex, col=col, lwd=lwd, pch=pch))
+                }
+                tags <- getTags(state$file, dbname=dbname)
+                if (nrow(tags) > 0) {
+                    with(default$tag,
+                        points(state$data$salinity[tags$level], state$data$theta[tags$level],
+                            cex=cex, pch=pch, lwd=lwd, col=col))
+                    text(state$data$salinity[tags$level], state$data$theta[tags$level], tags$tagLabel, col=2, pos=4)
+                }
             }
         } else {
             plot(0:1, 0:1, xlab="", ylab="", axes=FALSE, type="n")
             text(0.5, 0.5, paste("ERROR: plot type", input$view, "not handled yet"))
         }
+        plotting <- FALSE
     }, height=height, pointsize=14)
 }
 shinyApp(ui, server)
