@@ -348,6 +348,7 @@ server <- function(input, output, session) {
     dmsg1("About to define state.\n")
     state <- reactiveValues(
         step=0L,
+        stepTag=0L, # increment with tag modification, so summary works
         file=file,
         analyst=getUserName(),
         ctd=ctd,
@@ -513,10 +514,12 @@ server <- function(input, output, session) {
                         tagScheme=tagScheme, analyst=state$analyst, dbname=dbname)
                     dmsg1("    ... done with saveTag()\n")
                     state$step <<- state$step + 1 # other shiny elements notice this
+                    state$stepTag <<- state$stepTag + 1
                 } else if (key == "x" && focusIsTagged()) {
                     dmsg("about to untag at level ", state$focusLevel, "\n")
                     removeTag(file=state$file, level=state$focusLevel, dbname=dbname)
                     state$step <<- state$step + 1 # other shiny elements notice this
+                    state$stepTag <<- state$stepTag + 1
                 }
                 #} else if (key == "j") {
                 #    dmsg("responding to 'j' click for moving down in water column\n")
@@ -611,7 +614,7 @@ server <- function(input, output, session) {
 
     output$summary <- renderUI(
         {
-            state$step # to cause shiny to update this
+            state$stepTag # to cause shiny to update this
             # FIXME: how to render more info, e.g. dbname, present file, etc?
             con <- dbConnect(SQLite(), dbname)
             tags <- dbReadTable(con, "tags")
