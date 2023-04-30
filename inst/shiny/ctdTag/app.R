@@ -3,6 +3,7 @@
 library(oce)
 options(oceEOS="unesco") # avoid the hassle of supporting two EOSs
 debug <- 1
+t0 <- as.numeric(Sys.time()) # used by msg() et al.
 
 #' @importFrom shinyjs runjs
 
@@ -22,20 +23,42 @@ pluralize <- function(n=1, singular="item", plural=NULL)
     if (n == 1L) singular else plural
 }
 
-msg <- function(...)
-    cat(file=stderr(), ..., sep="")
+dt <- function(t, t0)
+    paste0("[", sprintf("%.6f", t-t0), "] ")
 
-dmsg <- function(...)
-    if (debug > 0) cat(file=stderr(), ..., sep="")
+msg <- function(...) {
+    t <- as.numeric(Sys.time())
+    cat(file=stderr(), dt(t,t0), ..., sep="")
+    t0 <<- t
+}
 
-dmsg1 <- function(...)
-    if (debug > 1) cat(file=stderr(), ..., sep="")
+dmsg <- function(...) {
+    if (debug > 0) {
+        t <- as.numeric(Sys.time())
+        cat(file=stderr(), dt(t,t0), ..., sep="")
+        t0 <<- t
+    }
+}
 
-dmsg2 <- function(...)
-    if (debug > 2) cat(file=stderr(), ..., sep="")
+dmsg1 <- function(...) {
+    if (debug > 1) {
+        t <- as.numeric(Sys.time())
+        cat(file=stderr(), dt(t,t0), ..., sep="")
+        t0 <<- t
+    }
+}
 
-dprint <- function(...)
+dmsg2 <- function(...) {
+    if (debug > 2) {
+        t <- as.numeric(Sys.time())
+        cat(file=stderr(), dt(t,t0), ..., sep="")
+        t0 <<- t
+    }
+}
+
+dprint <- function(...) {
     if (debug > 0) print(file=stderr(), ...)
+}
 
 createDatabase <- function(dbname=getDatabaseName(), tagScheme=NULL)
 {
@@ -93,13 +116,15 @@ removeTag <- function(file=NULL, level=NULL, dbname=NULL)
 saveTag <- function(file=NULL, level=NULL, tagCode=NULL, tagScheme=NULL, analyst=NULL, dbname=NULL)
 {
     tagLabel <- tagScheme[which(tagCode==tagScheme$tagCode), "tagLabel"]
-    dmsg("saveTag(file=", file, ", level=", level, ", tagCode=", tagCode, ", tagLabel=", tagLabel, ", analyst=", analyst, ", dbname=", dbname, ")\n")
-    # no checking on NULL; add that if we want to generalize
-    dmsg(vectorShow(tagLabel))
-    df <- data.frame(file=file, level=level, tagCode=tagCode, tagLabel=tagLabel, analyst=analyst, analysisTime=Sys.time())
-    con <- dbConnect(RSQLite::SQLite(), dbname)
-    RSQLite::dbAppendTable(con, "tags", df)
-    RSQLite::dbDisconnect(con)
+    if (identical(length(tagLabel), 1L)) {
+        dmsg("saveTag(file=", file, ", level=", level, ", tagCode=", tagCode, ", tagLabel=", tagLabel, ", analyst=", analyst, ", dbname=", dbname, ")\n")
+        df <- data.frame(file=file, level=level, tagCode=tagCode, tagLabel=tagLabel, analyst=analyst, analysisTime=Sys.time())
+        con <- dbConnect(RSQLite::SQLite(), dbname)
+        RSQLite::dbAppendTable(con, "tags", df)
+        RSQLite::dbDisconnect(con)
+    } else {
+        showNotification(paste("tag", tagCode, "not understood"))
+    }
 }
 
 findNearestLevel <- function(x, y, usr, data, view)
@@ -192,7 +217,7 @@ ui <- fluidPage(
             column(1, actionButton("help", "Help")),
             column(2, selectInput("debug", label=NULL,
                     choices=c("debug=0"=0, "debug=1"=1, "debug=2"=2),
-                    selected=0)),
+                    selected=debug)),
             column(2, selectInput("view", label=NULL,
                     choices=c("S prof."="S profile",
                         "T prof."="T profile",
@@ -483,8 +508,7 @@ server <- function(input, output, session) {
                 key <- intToUtf8(input$keypress)
                 dmsg(vectorShow(key))
                 if (key %in% as.character(0:9) && focusIsVisible() && !focusIsTagged()) {
-                    dmsg1("responding to '", key, "' click for tagging\n")
-                    dmsg("about to saveTag()\n")
+                    dmsg1("responding to '", key, "' click for tagging: about to saveTag()\n")
                     saveTag(file=state$file, level=state$focusLevel, tagCode=as.integer(key),
                         tagScheme=tagScheme, analyst=state$analyst, dbname=dbname)
                     dmsg1("    ... done with saveTag()\n")
@@ -587,6 +611,7 @@ server <- function(input, output, session) {
 
     output$summary <- renderUI(
         {
+            state$step # to cause shiny to update this
             # FIXME: how to render more info, e.g. dbname, present file, etc?
             con <- dbConnect(SQLite(), dbname)
             tags <- dbReadTable(con, "tags")
@@ -612,19 +637,19 @@ server <- function(input, output, session) {
         state$step # cause a shiny update
         #??? input$yProfile # cause a shiny update
         if (input$view == "T profile") {
-            par(mar=c(1, 3.3, 3, 1.5), mgp=c(1.9, 0.5, 0))
             x <- state$data$theta[state$visible]
             y <- state$data$yProfile[state$visible]
             if (length(x) > 0L && length(y) > 0L) {
-                msg("about to plot. (plotting=", plotting, "\n")
-                msg("    ", vectorShow(state$visible))
-                msg("    ", vectorShow(x))
-                msg("    ", vectorShow(y))
-                msg("    range(y) = ", paste(range(y), collapse=" "), "\n")
+                dmsg("about to plot T profile.\n")
+                dmsg1("  ", vectorShow(state$visible))
+                dmsg1("  ", vectorShow(x))
+                dmsg1("  ", vectorShow(y))
+                dmsg1("  range(y) = ", paste(range(y), collapse=" "), "\n")
+                par(mar=c(1, 3.3, 3, 1.5), mgp=c(1.9, 0.5, 0))
                 plot(x, y, ylim=rev(range(y)), yaxs="i", type=input$plotType,
                     cex=default$Tprofile$cex, col=default$Tprofile$col, lwd=default$Tprofile$lwd, pch=default$Tprofile$pch,
                     axes=FALSE, xlab="", ylab="")
-                msg("OK plot\n")
+                dmsg1("  OK plot\n")
                 state$usr <<- par("usr")
                 if (!is.null(state$focusLevel)) {
                     with(default$focus,
@@ -645,10 +670,11 @@ server <- function(input, output, session) {
                 box()
             }
         } else if (input$view == "S profile") {
-            par(mar=c(1, 3, 3, 1), mgp=c(1.9, 0.5, 0))
             x <- state$data$salinity[state$visible]
             y <- state$data$yProfile[state$visible]
             if (length(x) > 0L && length(y) > 0L) {
+                dmsg("about to plot S profile.\n")
+                par(mar=c(1, 3, 3, 1), mgp=c(1.9, 0.5, 0))
                 plot(x, y, ylim=rev(range(y)), yaxs="i", type=input$plotType,
                     cex=default$Sprofile$cex, col=default$Sprofile$col, lwd=default$Sprofile$lwd, pch=default$Sprofile$pch,
                     axes=FALSE, xlab="", ylab="")
@@ -673,11 +699,11 @@ server <- function(input, output, session) {
                 box()
             }
         } else if (input$view == "sigmaTheta profile") {
-            par(mar=c(1, 3.3, 3, 1), mgp=c(1.9, 0.5, 0))
-            dmsg("doing sigmaTheta profile")
             x <- state$data$sigmaTheta[state$visible]
             y <- state$data$yProfile[state$visible]
             if (length(x) > 0L && length(y) > 0L) {
+                dmsg("about to plot sigmaTheta profile.\n")
+                par(mar=c(1, 3.3, 3, 1), mgp=c(1.9, 0.5, 0))
                 plot(x, y, ylim=rev(range(y)), yaxs="i", type=input$plotType,
                     cex=default$Tprofile$cex, col=default$Tprofile$col, lwd=default$Tprofile$lwd, pch=default$Tprofile$pch,
                     axes=FALSE, xlab="", ylab="")
@@ -701,10 +727,11 @@ server <- function(input, output, session) {
                 box()
             }
         } else if (input$view == "TS") {
-            par(mar=c(1, 3, 3, 1), mgp=c(1.9, 0.5, 0))
             x <- state$data$salinity[state$visible]
             y <- state$data$temperature[state$visible]
             if (length(x) > 0L && length(y) > 0L) {
+                dmsg("about to plot TS.\n")
+                par(mar=c(1, 3, 3, 1), mgp=c(1.9, 0.5, 0))
                 p <- state$data$pressure[state$visible]
                 ctd <- as.ctd(x, y, p)
                 # Plot empty with visible data, but then add the actual full data.
