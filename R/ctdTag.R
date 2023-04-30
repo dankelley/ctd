@@ -38,7 +38,7 @@
 #'}
 #'
 #' @importFrom shiny runApp shinyOptions
-#' @importFrom oce read.oce
+#' @importFrom oce numberAsPOSIXct read.oce
 #' @importFrom DBI dbClearResult dbConnect dbCreateTable dbFetch dbListTables dbReadTable dbSendQuery dbWriteTable
 #' @importFrom RSQLite SQLite
 #'
