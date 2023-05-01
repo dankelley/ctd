@@ -24,7 +24,7 @@ pluralize <- function(n=1, singular="item", plural=NULL)
 }
 
 dt <- function(t, t0)
-    paste0("[", sprintf("%.6f", t-t0), "] ")
+    paste0("[", sprintf("%9.6f", t-t0), "] ")
 
 msg <- function(...) {
     t <- as.numeric(Sys.time())
