@@ -5,16 +5,6 @@ options(oceEOS="unesco") # avoid the hassle of supporting two EOSs
 debug <- 1
 t0 <- as.numeric(Sys.time()) # used by msg() et al.
 
-#' @importFrom shinyjs runjs
-
-#library(shiny)
-#?library(shinyBS)
-#?requireNamespace(shinyjs)
-#?library(shinycssloaders)
-#libray(oce)
-#?requireNamespace(DBI)
-#?requireNamespace(RSQLite)
-
 pluralize <- function(n=1, singular="item", plural=NULL)
 {
     singular <- paste(n, singular)
@@ -23,35 +13,32 @@ pluralize <- function(n=1, singular="item", plural=NULL)
     if (n == 1L) singular else plural
 }
 
+# Messages to R console (stderr() file)
 dt <- function(t, t0)
-    paste0("[", sprintf("%9.6f", t-t0), "] ")
-
+    sprintf("[ %9.6f ]", t - t0)
 msg <- function(...) {
     t <- as.numeric(Sys.time())
-    cat(file=stderr(), dt(t,t0), ..., sep="")
+    cat(file=stderr(), dt(t, t0), ..., sep="")
     t0 <<- t
 }
-
 dmsg <- function(...)
     if (debug > 0) msg(...)
-
 dmsg1 <- function(...)
-    if (debug > 0) msg(...)
-
+    if (debug > 1) msg(...)
 dmsg2 <- function(...)
     if (debug > 2) msg(...)
-
-dprint <- function(...) {
+dprint <- function(...)
     if (debug > 0) print(file=stderr(), ...)
-}
 
+# Create a database, or reuse an existing one
 createDatabase <- function(dbname=getDatabaseName(), tagScheme=NULL)
 {
     if (file.exists(dbname)) {
-        dmsg("createDatabase(): using existing database \"", dbname, "\"\n")
+        dmsg("using existing database \"", dbname, "\"\n")
     } else {
-        dmsg("createDatabase(): creating database \"", dbname, "\"\n")
-        stop("Must provide tagScheme")
+        dmsg("creating database \"", dbname, "\"\n")
+        if (is.null(tagScheme))
+            stop("Must provide tagScheme")
         con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
         DBI::dbCreateTable(con, "version", c("major"="INTEGER", "minor"="INTEGER"))
         DBI::dbWriteTable(con, "version", data.frame(major=1L, minor=0L), overwrite=TRUE)
@@ -63,6 +50,7 @@ createDatabase <- function(dbname=getDatabaseName(), tagScheme=NULL)
     }
 }
 
+# Get tags for a particular file.
 getTags <- function(file=NULL, dbname=NULL)
 {
     tags <- NULL
@@ -77,27 +65,28 @@ getTags <- function(file=NULL, dbname=NULL)
             }
         }
     }
-    #dmsg(vectorShow(tags))
+    #dmsg(oce::vectorShow(tags))
     tags
 }
 
+# Remove a tag at a given level of a given file
 removeTag <- function(file=NULL, level=NULL, dbname=NULL)
 {
-    dmsg("removeTag(file=\"", file, "\", level=", level, ", dbname=\"", dbname, "\") {\n")
+    dmsg("removeTag() at level ", level, "\n")
     con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
     tags <- DBI::dbReadTable(con, "tags")
     remove <- which(tags$file == file & tags$level == level)
     if (length(remove)) {
-        dmsg("    removing ", paste(remove, collapse=" "), "-th tag\n")
+        dmsg1("    removing ", paste(remove, collapse=" "), "-th tag\n")
         tags <- tags[-remove, ]
         DBI::dbWriteTable(con, "tags", tags, overwrite=TRUE)
     } else {
-        dmsg("    nothing to remove\n")
+        dmsg1("    nothing to remove\n")
     }
     DBI::dbDisconnect(con)
-    dmsg("} removeTag()\n")
 }
 
+# Save a tag
 saveTag <- function(file=NULL, level=NULL, tagCode=NULL, tagScheme=NULL, analyst=NULL, dbname=NULL)
 {
     tagLabel <- tagScheme[which(tagCode==tagScheme$tagCode), "tagLabel"]
@@ -113,30 +102,31 @@ saveTag <- function(file=NULL, level=NULL, tagCode=NULL, tagScheme=NULL, analyst
     }
 }
 
+# Find data level (index in e.g. state$data$pressure) closest to a given (x,y),
+# typically as set by a mouse click.
 findNearestLevel <- function(x, y, usr, data, view)
 {
     dmsg("findNearestLevel(x=", x, ", y=", y, ", ..., view=\"", view, "\")\n")
-    #dmsg("  ", vectorShow(usr))
     dx2 <- (usr[2] - usr[1])^2
     dy2 <- (usr[4] - usr[3])^2
-    dmsg2("  ", vectorShow(dx2))
-    dmsg2("  ", vectorShow(dy2))
+    dmsg2("  ", oce::vectorShow(dx2))
+    dmsg2("  ", oce::vectorShow(dy2))
     if (view == "T profile") {
         d2 <- (x - data$theta)^2/dx2 + (y - data$yProfile)^2/dy2
         nearest <- which.min(d2)
-        dmsg1(sprintf("  T=%.3f, y=%.3f -> index=%d (where y=%.1f)\n", x, y, nearest, data$yProfile[nearest]))
+        dmsg2(sprintf("  T=%.3f, y=%.3f -> index=%d (where y=%.1f)\n", x, y, nearest, data$yProfile[nearest]))
     } else if (view == "S profile") {
         d2 <- (x - data$salinity)^2/dx2 + (y - data$yProfile)^2/dy2
         nearest <- which.min(d2)
-        dmsg1(sprintf("  S=%.3f, y=%.3f -> index=%d (where y=%.1f)\n", x, y, nearest, data$yProfile[nearest]))
+        dmsg2(sprintf("  S=%.3f, y=%.3f -> index=%d (where y=%.1f)\n", x, y, nearest, data$yProfile[nearest]))
     } else if (view == "sigmaTheta profile") {
         d2 <- (x - data$sigmaTheta)^2/dx2 + (y - data$yProfile)^2/dy2
         nearest <- which.min(d2)
-        dmsg1(sprintf("  sigmaTheta=%.3f, y=%.3f -> index=%d (where y=%.1f)\n", x, y, nearest, data$yProfile[nearest]))
+        dmsg2(sprintf("  sigmaTheta=%.3f, y=%.3f -> index=%d (where y=%.1f)\n", x, y, nearest, data$yProfile[nearest]))
      } else if (view == "TS") {
         d2 <- (x - data$salinity)^2/dx2 + (y - data$theta)^2/dy2
         nearest <- which.min(d2)
-        dmsg1(sprintf("  S=%.3f, theta=%.3f -> index=%d (where S=%.1f theta=%.1f)\n",
+        dmsg2(sprintf("  S=%.3f, theta=%.3f -> index=%d (where S=%.1f theta=%.1f)\n",
                 x, y, nearest, data$salinity[nearest], data$theta[nearest]))
     } else {
         stop("view=\"", view, "\" is not handled yet")
@@ -146,6 +136,7 @@ findNearestLevel <- function(x, y, usr, data, view)
     list(nearest=nearest, relativeDistance=relativeDistance)
 }
 
+# Trim an index limit to be valid for a vector of length ndata.
 limitsTrim <- function(limits, ndata)
 {
     limits <- as.integer(limits)
@@ -158,8 +149,6 @@ limitsTrim <- function(limits, ndata)
 # on the two indices stored in 'limits'.
 limitsToVisible <- function(limits, ndata)
 {
-    #limits[1] <- max(1L, as.integer(limits[1]))
-    #limits[2] <- min(ndata, as.integer(limits[2]))
     visible <- rep(FALSE, ndata)
     visible[seq(limits[1], limits[2])] <- TRUE
     visible
@@ -325,12 +314,13 @@ server <- function(input, output, session) {
     }
     createDatabase(dbname=dbname, tagScheme=tagScheme)
     values <- reactiveValues(brush=NULL)
+    # FIXME: possibly add get-new-file mechanism near this spot
     ctd <- oce::read.oce(file)
     data <- list(pressure=ctd@data$pressure, salinity=ctd@data$salinity, temperature=ctd@data$temperature)
-    data$theta <- swTheta(ctd)
+    data$theta <- oce::swTheta(ctd)
     data$yProfile <- data$pressure
-    data$ylabProfile <- resizableLabel("p")
-    data$sigmaTheta <- swSigmaTheta(ctd, eos="unesco")
+    data$ylabProfile <- oce::resizableLabel("p")
+    data$sigmaTheta <- oce::swSigmaTheta(ctd, eos="unesco")
     dmsg1("About to define state.\n")
     state <- reactiveValues(
         step=0L,
@@ -339,26 +329,19 @@ server <- function(input, output, session) {
         analyst=getUserName(),
         ctd=ctd,
         data=data,
-        ndata=length(data$pressure),
         focusLevel=NULL,
         usr=c(0, 1, 0, 1),
         visible=rep(TRUE, length(data$pressure)) # all points visible at the start
         )
 
     focusIsSet <- function()
-    {
         !is.null(state$focusLevel)
-    }
 
     focusIsTagged <- function()
-    {
         focusIsSet() && (state$focusLevel %in% getTags(state$file, dbname=dbname)$level)
-    }
 
     focusIsVisible <- function()
-    {
         focusIsSet() && state$visible[state$focusLevel]
-    }
 
     observeEvent(input$clear,
         {
@@ -387,10 +370,11 @@ server <- function(input, output, session) {
             dmsg("responding to 'goUp'\n")
             state$focusLevel <- NULL # remove focus
             if (!head(state$visible, 1)) {
+                ndata <- length(state$visible)
                 limits <- visibleToLimits(state$visible)
                 span <- diff(limits)
-                limits <- limitsTrim(limits - (1/4)*span, state$ndata)
-                state$visible <- limitsToVisible(limits, state$ndata)
+                limits <- limitsTrim(limits - (1/4)*span, ndata)
+                state$visible <- limitsToVisible(limits, ndata)
             }
         })
 
@@ -399,10 +383,11 @@ server <- function(input, output, session) {
             dmsg("responding to 'goDown'\n")
             state$focusLevel <- NULL # remove focus
             if (!tail(state$visible, 1)) {
+                ndata <- length(state$visible)
                 limits <- visibleToLimits(state$visible)
                 span <- diff(limits)
-                limits <- limitsTrim(limits + (1/4)*span, state$ndata)
-                state$visible <- limitsToVisible(limits, state$ndata)
+                limits <- limitsTrim(limits + (1/4)*span, ndata)
+                state$visible <- limitsToVisible(limits, ndata)
             }
          })
 
@@ -411,11 +396,12 @@ server <- function(input, output, session) {
             dmsg("responding to 'zoomIn'\n")
             state$focusLevel <- NULL # remove focus
             limits <- visibleToLimits(state$visible)
-            dmsg(vectorShow(limits))
+            ndata <- length(state$visible)
+            dmsg(oce::vectorShow(limits))
             span <- max(diff(limits) / 4, 10)
-            dmsg(vectorShow(span))
-            limits <- limitsTrim(limits + c(span, -span), state$ndata)
-            state$visible <- limitsToVisible(limits, state$ndata)
+            dmsg(oce::vectorShow(span))
+            limits <- limitsTrim(limits + c(span, -span), ndata)
+            state$visible <- limitsToVisible(limits, ndata)
         })
  
     observeEvent(input$zoomOut,
@@ -423,9 +409,10 @@ server <- function(input, output, session) {
             dmsg("responding to 'zoomOut'\n")
             state$focusLevel <- NULL # remove focus
             limits <- visibleToLimits(state$visible)
+            ndata <- length(state$visible)
             span <- max(diff(limits) / 4, 10)
-            limits <- limitsTrim(limits + c(-span, span), state$ndata)
-            state$visible <- limitsToVisible(limits, state$ndata)
+            limits <- limitsTrim(limits + c(-span, span), ndata)
+            state$visible <- limitsToVisible(limits, ndata)
         })
 
     observeEvent(input$click,
@@ -441,7 +428,7 @@ server <- function(input, output, session) {
         {
             state$focusLevel <- NULL
             if (grepl("profile", input$view)) {
-                dmsg("brushed on a profile (ignoring x extend of brush)\n")
+                dmsg("brushed on a profile (ignoring x extent of brush)\n")
                 visible <- with(input$brush, ymin <= state$data$yProfile & state$data$yProfile <= ymax)
             } else if (input$view == "TS") {
                 dmsg("brushed on a TS diagram\n")
@@ -449,10 +436,10 @@ server <- function(input, output, session) {
                 yBrushSpan <- input$brush$ymax - input$brush$ymin
                 xFraction <- with(input$brush, (xmax-xmin) / (domain$right - domain$left))
                 yFraction <- with(input$brush, (ymax-ymin) / (domain$top - domain$bottom))
-                dmsg1(vectorShow(xFraction))
-                dmsg1(vectorShow(yFraction))
+                dmsg1(oce::vectorShow(xFraction))
+                dmsg1(oce::vectorShow(yFraction))
                 fraction <- sqrt(xFraction^2 + yFraction^2)
-                dmsg1("  ", vectorShow(fraction))
+                dmsg1("  ", oce::vectorShow(fraction))
                 if (fraction < brushCriterion) {
                     dmsg1(sprintf("  ignoring brush, since it occupies only %.2f%% of plot area (criterion is %.2f%%)\n",
                             100*fraction, 100*brushCriterion))
@@ -464,9 +451,9 @@ server <- function(input, output, session) {
                 npoints <- length(x)
                 visible <- with(input$brush, xmin <= x & x <= xmax & ymin <= y & y <= ymax)
                 first <- which(visible)[1]
-                dmsg2(vectorShow(first))
+                dmsg2(oce::vectorShow(first))
                 last <- length(visible) + 1 - which(rev(visible))[1]
-                dmsg2(vectorShow(last))
+                dmsg2(oce::vectorShow(last))
                 if (last <= 0)
                     stop("bug: last is 0 or negative")
                 if (first > last) {
@@ -515,38 +502,16 @@ server <- function(input, output, session) {
         dmsg("observed input$yProfile=\"", input$yProfile, "\"\n")
         if (input$yProfile == "pressure") {
             state$data$yProfile <<- data$pressure
-            state$data$ylabProfile <<- resizableLabel("p")
-            dmsg1("    ", vectorShow(data$yProfile))
+            state$data$ylabProfile <<- oce::resizableLabel("p")
         } else {
             state$data$yProfile <<- data$sigmaTheta
             state$data$ylabProfile <<- expression(sigma[theta]* " ["* kg/m^3*"]")
-            dmsg1("    ", vectorShow(data$yProfile))
         }
     })
 
-    #output$focusLevelMsg <- renderText(
-    #    {
-    #        #if (!is.null(input$hover$x)) {
-    #        #    if (input$view == "T profile") {
-    #        #        sprintf("T=%.3f degC, p=%.3f dbar\n", input$hover$x, input$hover$y)
-    #        #    } else if (input$view == "S profile") {
-    #        #        sprintf("S=%.3f, p=%.3f dbar\n", input$hover$x, input$hover$y)
-    #        #    } else if (input$view == "TS") {
-    #        #        sprintf("S=%.3g C, T=%.3f\n", input$hover$x, input$hover$y)
-    #        #    } else if (input$view == "N(z)") {
-    #        #        sprintf("N=%.3g, p=%.3f dbar\n", input$hover$x, input$hover$y)
-    #        #    } else {
-    #        #        "FIXME"
-    #        #    }
-    #        #} else {
-    #        pvisible <- data$pressure[state$visible]
-    #        sprintf("%.1f to %.1f dbar shown", min(pvisible), max(pvisible))
-    #        #}
-    #    })
-
     output$tagMsg <- renderText(
         {
-            state$step # to cause shiny to update this
+            state$stepTag # to cause shiny to update this
             file <- state$file
             tags <- getTags(state$file, dbname=dbname)
             tags <- tags[tags$file == file, ]
@@ -633,8 +598,8 @@ server <- function(input, output, session) {
                 }
                 axis(side=2)
                 axis(side=3)
-                mtext(data$ylab, side=2, line=1.5)
-                mtext(resizableLabel("theta"), side=3, line=1.5)
+                mtext(state$data$ylabProfile, side=2, line=1.5)
+                mtext(oce::resizableLabel("theta"), side=3, line=1.5)
                 box()
             }
         } else if (input$view == "S profile") {
@@ -661,8 +626,8 @@ server <- function(input, output, session) {
                 }
                 axis(side=2)
                 axis(side=3)
-                mtext(data$ylab, side=2, line=1.5)
-                mtext(resizableLabel("S"), side=3, line=1.5)
+                mtext(state$data$ylabProfile, side=2, line=1.5)
+                mtext(oce::resizableLabel("S"), side=3, line=1.5)
                 box()
             }
         } else if (input$view == "sigmaTheta profile") {
@@ -689,8 +654,8 @@ server <- function(input, output, session) {
                 }
                 axis(side=2)
                 axis(side=3)
-                mtext(data$ylab, side=2, line=1.5)
-                mtext(resizableLabel("sigmaTheta"), side=3, line=1.5)
+                mtext(state$data$ylabProfile, side=2, line=1.5)
+                mtext(oce::resizableLabel("sigmaTheta"), side=3, line=1.5)
                 box()
             }
         } else if (input$view == "TS") {

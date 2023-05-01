@@ -37,13 +37,18 @@
 #' ctdTag(file=file)
 #'}
 #'
-## importFrom DBI dbClearResult dbConnect dbCreateTable dbFetch dbListTables dbReadTable dbSendQuery dbWriteTable
+# NOTE: we are using these (mostly with package:: syntax) in
+# inst/shiny/ctdTag/app.R and not in R/*R so there is really no benefit in
+# naming all the functions.  Just having a single function seems to be enough
+# to make R-check be happy.
+#'
+#' @importFrom DBI dbClearResult dbConnect dbCreateTable dbFetch dbListTables dbReadTable dbSendQuery dbWriteTable
 #'
 #' @importFrom DT renderDT
 #'
 #' @importFrom oce numberAsPOSIXct read.oce resizableLabel swSigmaTheta swTheta
 #'
-## importFrom RSQLite dbAppendTable dbConnect dbDisconnect dbReadTable dbWriteTable SQLite
+#' @importFrom RSQLite dbAppendTable dbConnect dbDisconnect dbReadTable dbWriteTable SQLite
 #'
 #' @importFrom shiny runApp shinyOptions
 #'
