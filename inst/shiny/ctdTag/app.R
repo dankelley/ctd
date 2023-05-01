@@ -32,29 +32,14 @@ msg <- function(...) {
     t0 <<- t
 }
 
-dmsg <- function(...) {
-    if (debug > 0) {
-        t <- as.numeric(Sys.time())
-        cat(file=stderr(), dt(t,t0), ..., sep="")
-        t0 <<- t
-    }
-}
+dmsg <- function(...)
+    if (debug > 0) msg(...)
 
-dmsg1 <- function(...) {
-    if (debug > 1) {
-        t <- as.numeric(Sys.time())
-        cat(file=stderr(), dt(t,t0), ..., sep="")
-        t0 <<- t
-    }
-}
+dmsg1 <- function(...)
+    if (debug > 0) msg(...)
 
-dmsg2 <- function(...) {
-    if (debug > 2) {
-        t <- as.numeric(Sys.time())
-        cat(file=stderr(), dt(t,t0), ..., sep="")
-        t0 <<- t
-    }
-}
+dmsg2 <- function(...)
+    if (debug > 2) msg(...)
 
 dprint <- function(...) {
     if (debug > 0) print(file=stderr(), ...)
@@ -117,7 +102,8 @@ saveTag <- function(file=NULL, level=NULL, tagCode=NULL, tagScheme=NULL, analyst
 {
     tagLabel <- tagScheme[which(tagCode==tagScheme$tagCode), "tagLabel"]
     if (identical(length(tagLabel), 1L)) {
-        dmsg("saveTag(file=", file, ", level=", level, ", tagCode=", tagCode, ", tagLabel=", tagLabel, ", analyst=", analyst, ", dbname=", dbname, ")\n")
+        #dmsg("saveTag(file=", file, ", level=", level, ", tagCode=", tagCode, ", tagLabel=", tagLabel, ", analyst=", analyst, ", dbname=", dbname, ")\n")
+        dmsg("saving tag ", tagCode, " at level ", level, "\n")
         df <- data.frame(file=file, level=level, tagCode=tagCode, tagLabel=tagLabel, analyst=analyst, analysisTime=Sys.time())
         con <- dbConnect(RSQLite::SQLite(), dbname)
         RSQLite::dbAppendTable(con, "tags", df)
@@ -504,42 +490,24 @@ server <- function(input, output, session) {
     observeEvent(input$keypressTrigger,
         {
             if (!plotting) {
-                msg("keypress being handled since not plotting\n")
-                dmsg1(vectorShow(input$keypress))
                 key <- intToUtf8(input$keypress)
-                dmsg(vectorShow(key))
-                if (key %in% as.character(0:9) && focusIsVisible() && !focusIsTagged()) {
-                    dmsg1("responding to '", key, "' click for tagging: about to saveTag()\n")
+                dmsg("keypress (", key, " being handled since not plotting\n")
+                if (key %in% as.character(tagScheme$tagCode) && focusIsVisible() && !focusIsTagged()) {
+                    dmsg("  tagging at level ", state$focusLevel, "\n")
                     saveTag(file=state$file, level=state$focusLevel, tagCode=as.integer(key),
                         tagScheme=tagScheme, analyst=state$analyst, dbname=dbname)
-                    dmsg1("    ... done with saveTag()\n")
                     state$step <<- state$step + 1 # other shiny elements notice this
-                    state$stepTag <<- state$stepTag + 1
+                    state$stepTag <<- state$stepTag + 1 # only 'summary' notices this
                 } else if (key == "x" && focusIsTagged()) {
-                    dmsg("about to untag at level ", state$focusLevel, "\n")
+                    dmsg("  untagging at level ", state$focusLevel, "\n")
                     removeTag(file=state$file, level=state$focusLevel, dbname=dbname)
                     state$step <<- state$step + 1 # other shiny elements notice this
-                    state$stepTag <<- state$stepTag + 1
+                    state$stepTag <<- state$stepTag + 1 # only 'summary' notices this
+                } else {
+                    dmsg("  ignoring keypress (invalid key, or no focus level)\n")
                 }
-                #} else if (key == "j") {
-                #    dmsg("responding to 'j' click for moving down in water column\n")
-                #    if (!tail(state$visible, 1)) {
-                #        limits <- visibleToLimits(state$visible)
-                #        span <- diff(limits)
-                #        limits <- limitsTrim(limits + (1/4)*span, state$ndata)
-                #        state$visible <- limitsToVisible(limits, state$ndata)
-                #    }
-                #} else if (key == "k") {
-                #    dmsg("responding to 'k' click for moving up in water column\n")
-                #    if (!head(state$visible, 1)) {
-                #        limits <- visibleToLimits(state$visible)
-                #        span <- diff(limits)
-                #        limits <- limitsTrim(limits - (1/4)*span, state$ndata)
-                #        state$visible <- limitsToVisible(limits, state$ndata)
-                #    }
-                #}
             } else {
-                msg("keypress ignored, since still plotting\n")
+                dmsg("keypress (", key, ") ignored, since still plotting\n")
             }
         })
 
@@ -644,15 +612,10 @@ server <- function(input, output, session) {
             y <- state$data$yProfile[state$visible]
             if (length(x) > 0L && length(y) > 0L) {
                 dmsg("about to plot T profile.\n")
-                dmsg1("  ", vectorShow(state$visible))
-                dmsg1("  ", vectorShow(x))
-                dmsg1("  ", vectorShow(y))
-                dmsg1("  range(y) = ", paste(range(y), collapse=" "), "\n")
                 par(mar=c(1, 3.3, 3, 1.5), mgp=c(1.9, 0.5, 0))
                 plot(x, y, ylim=rev(range(y)), yaxs="i", type=input$plotType,
                     cex=default$Tprofile$cex, col=default$Tprofile$col, lwd=default$Tprofile$lwd, pch=default$Tprofile$pch,
                     axes=FALSE, xlab="", ylab="")
-                dmsg1("  OK plot\n")
                 state$usr <<- par("usr")
                 if (!is.null(state$focusLevel)) {
                     with(default$focus,
@@ -683,7 +646,6 @@ server <- function(input, output, session) {
                     axes=FALSE, xlab="", ylab="")
                 state$usr <<- par("usr")
                 if (!is.null(state$focusLevel)) {
-                    dmsg("S profile... ", vectorShow(state$focusLevel))
                     with(default$focus,
                         points(state$data$salinity[state$focusLevel], state$data$yProfile[state$focusLevel],
                             cex=cex, col=col, lwd=lwd, pch=pch))
