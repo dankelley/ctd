@@ -15,7 +15,7 @@ pluralize <- function(n=1, singular="item", plural=NULL)
 
 # Messages to R console (stderr() file)
 dt <- function(t, t0)
-    sprintf("[ %9.6f ]", t - t0)
+    sprintf("[%9.6f] ", t - t0)
 msg <- function(...) {
     t <- as.numeric(Sys.time())
     cat(file=stderr(), dt(t, t0), ..., sep="")
@@ -132,7 +132,7 @@ findNearestLevel <- function(x, y, usr, data, view)
         stop("view=\"", view, "\" is not handled yet")
     }
     relativeDistance <- sqrt(d2[nearest])
-    dmsg(sprintf("  returning nearest=%d, relativeDistance=%.4f\n", nearest, relativeDistance))
+    dmsg2(sprintf("  returning nearest=%d, relativeDistance=%.4f\n", nearest, relativeDistance))
     list(nearest=nearest, relativeDistance=relativeDistance)
 }
 
@@ -417,8 +417,9 @@ server <- function(input, output, session) {
 
     observeEvent(input$click,
         {
+            msg("input$click\n")
             closest <- findNearestLevel(input$click$x, input$click$y, state$usr, state$data, input$view)
-            dmsg(sprintf("click yielded nearest=%d, relativeDistance=%.1f%%\n", closest$focusLevel, 100*closest$relativeDistance))
+            dmsg(sprintf("  nearest=%d, relativeDistance=%.1f%%\n", closest$nearest, 100*closest$relativeDistance))
             state$focusLevel <- if (closest$relativeDistance < clickDistanceCriterion) closest$nearest else NULL
         })
 
@@ -426,25 +427,27 @@ server <- function(input, output, session) {
     # based on the pressure limits of brushed region.
     observeEvent(input$brush,
         {
+            msg("input$brush\n")
+            # Ignore very small brush areas (likely a sloppy click)
+            xBrushSpan <- input$brush$xmax - input$brush$xmin
+            yBrushSpan <- input$brush$ymax - input$brush$ymin
+            xFraction <- with(input$brush, (xmax-xmin) / (domain$right - domain$left))
+            yFraction <- with(input$brush, (ymax-ymin) / (domain$top - domain$bottom))
+            dmsg1(oce::vectorShow(xFraction))
+            dmsg1(oce::vectorShow(yFraction))
+            fraction <- sqrt(xFraction^2 + yFraction^2)
+            dmsg1("  ", oce::vectorShow(fraction))
+            if (fraction < brushCriterion) {
+                dmsg1(sprintf("  ignoring brush, since it occupies only %.2f%% of plot area (criterion is %.2f%%)\n",
+                        100*fraction, 100*brushCriterion))
+                return()
+            }
             state$focusLevel <- NULL
             if (grepl("profile", input$view)) {
-                dmsg("brushed on a profile (ignoring x extent of brush)\n")
+                dmsg("  handling brush action on a profile (only y extent considered)\n")
                 visible <- with(input$brush, ymin <= state$data$yProfile & state$data$yProfile <= ymax)
             } else if (input$view == "TS") {
-                dmsg("brushed on a TS diagram\n")
-                xBrushSpan <- input$brush$xmax - input$brush$xmin
-                yBrushSpan <- input$brush$ymax - input$brush$ymin
-                xFraction <- with(input$brush, (xmax-xmin) / (domain$right - domain$left))
-                yFraction <- with(input$brush, (ymax-ymin) / (domain$top - domain$bottom))
-                dmsg1(oce::vectorShow(xFraction))
-                dmsg1(oce::vectorShow(yFraction))
-                fraction <- sqrt(xFraction^2 + yFraction^2)
-                dmsg1("  ", oce::vectorShow(fraction))
-                if (fraction < brushCriterion) {
-                    dmsg1(sprintf("  ignoring brush, since it occupies only %.2f%% of plot area (criterion is %.2f%%)\n",
-                            100*fraction, 100*brushCriterion))
-                    return()
-                }
+                dmsg("  handling brush action on a TS diagram (consider both S and T)\n")
                 x <- state$data$salinity
                 y <- state$data$theta
                 # Find first and last pressures spanning box, so TS extrema are retained.
@@ -465,7 +468,7 @@ server <- function(input, output, session) {
                     stop("bug: first must be positive, but it is ", first)
                 if (last <= 0)
                     stop("bug: last must be positive, but it is ", last)
-                dmsg1(sprintf("  first=%d last=%d\n", first, last))
+                #dmsg1(sprintf("  first=%d last=%d\n", first, last))
                 visible <- rep(FALSE, npoints)
                 visible[first:last] <- TRUE
             }

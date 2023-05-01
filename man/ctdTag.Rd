@@ -5,8 +5,8 @@
 \title{Tag CTD features}
 \usage{
 ctdTag(
-  file,
-  dbname = NULL,
+  file = NULL,
+  dbname = getDatabaseName("ctdTag"),
   tagScheme = NULL,
   height = 550,
   clickDistanceCriterion = 0.02,

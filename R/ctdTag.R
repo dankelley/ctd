@@ -57,24 +57,22 @@
 #' @author Dan Kelley
 #'
 #' @export
-ctdTag <- function(file, dbname=NULL, tagScheme=NULL, height=550, clickDistanceCriterion=0.02, debug=0)
+ctdTag <- function(file=NULL, dbname=getDatabaseName("ctdTag"), tagScheme=NULL, height=550, clickDistanceCriterion=0.02, debug=0)
 {
-    if (missing(file))
+    if (is.null(file))
         stop("must give 'file'")
-    if (is.null(dbname))
-        dbname <- getDatabaseName("ctdTag")
     if (is.null(tagScheme)) {
         labels <- c("iTop", "iTop?", "iBot", "iBot?", "WS", "WS?", "CF", "CF?")
         tagScheme <- data.frame(tagCode=seq_along(labels), tagLabel=labels)
     }
-    dir <- system.file("shiny", "ctdTag/app.R", package="ctd")
-    if (!nchar(dir))
-        stop("The app could not be located.", call.=FALSE)
     shinyOptions(file=file,
         height=height,
         tagScheme=tagScheme,
         clickDistanceCriterion=clickDistanceCriterion,
         dbname=dbname,
         debug=debug)
+    dir <- system.file("shiny", "ctdTag/app.R", package="ctd")
+    if (!nchar(dir))
+        stop("The app could not be located.", call.=FALSE)
     runApp(dir, display.mode="normal")
 }
