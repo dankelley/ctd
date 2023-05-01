@@ -11,7 +11,7 @@ t0 <- as.numeric(Sys.time()) # used by msg() et al.
 #?library(shinyBS)
 #?requireNamespace(shinyjs)
 #?library(shinycssloaders)
-#library(oce)
+#libray(oce)
 #?requireNamespace(DBI)
 #?requireNamespace(RSQLite)
 
@@ -52,14 +52,14 @@ createDatabase <- function(dbname=getDatabaseName(), tagScheme=NULL)
     } else {
         dmsg("createDatabase(): creating database \"", dbname, "\"\n")
         stop("Must provide tagScheme")
-        con <- dbConnect(RSQLite::SQLite(), dbname)
-        dbCreateTable(con, "version", c("major"="INTEGER", "minor"="INTEGER"))
-        dbWriteTable(con, "version", data.frame(major=1L, minor=0L), overwrite=TRUE)
-        dbCreateTable(con, "tagScheme", c("tagCode"="INTEGER", "tagLabel"="TEXT"))
-        dbWriteTable(con, "tagScheme", tagScheme, overwrite=TRUE)
-        dbCreateTable(con, "tags", c("file"="TEXT", level="INT", tagCode="INT", tagLabel="TEXT",
+        con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+        DBI::dbCreateTable(con, "version", c("major"="INTEGER", "minor"="INTEGER"))
+        DBI::dbWriteTable(con, "version", data.frame(major=1L, minor=0L), overwrite=TRUE)
+        DBI::dbCreateTable(con, "tagScheme", c("tagCode"="INTEGER", "tagLabel"="TEXT"))
+        DBI::dbWriteTable(con, "tagScheme", tagScheme, overwrite=TRUE)
+        DBI::dbCreateTable(con, "tags", c("file"="TEXT", level="INT", tagCode="INT", tagLabel="TEXT",
                 analyst="TEXT", analysisTime="TIMESTAMP"))
-        dbDisconnect(con)
+        DBI::dbDisconnect(con)
     }
 }
 
@@ -68,10 +68,10 @@ getTags <- function(file=NULL, dbname=NULL)
     tags <- NULL
     #dmsg("getTags(file=\"", file, "\", dbname=\"", dbname, "\"\n")
     if (file.exists(dbname)) {
-        con <- dbConnect(SQLite(), dbname)
-        if (dbExistsTable(con, "tags")) {
-            tags <- dbReadTable(con, "tags")
-            dbDisconnect(con)
+        con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+        if (DBI::dbExistsTable(con, "tags")) {
+            tags <- DBI::dbReadTable(con, "tags")
+            DBI::dbDisconnect(con)
             if (!is.null(file)) {
                 tags <- tags[tags$file == file, ]
             }
@@ -84,17 +84,17 @@ getTags <- function(file=NULL, dbname=NULL)
 removeTag <- function(file=NULL, level=NULL, dbname=NULL)
 {
     dmsg("removeTag(file=\"", file, "\", level=", level, ", dbname=\"", dbname, "\") {\n")
-    con <- dbConnect(RSQLite::SQLite(), dbname)
-    tags <- RSQLite::dbReadTable(con, "tags")
+    con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+    tags <- DBI::dbReadTable(con, "tags")
     remove <- which(tags$file == file & tags$level == level)
     if (length(remove)) {
         dmsg("    removing ", paste(remove, collapse=" "), "-th tag\n")
         tags <- tags[-remove, ]
-        RSQLite::dbWriteTable(con, "tags", tags, overwrite=TRUE)
+        DBI::dbWriteTable(con, "tags", tags, overwrite=TRUE)
     } else {
         dmsg("    nothing to remove\n")
     }
-    RSQLite::dbDisconnect(con)
+    DBI::dbDisconnect(con)
     dmsg("} removeTag()\n")
 }
 
@@ -105,9 +105,9 @@ saveTag <- function(file=NULL, level=NULL, tagCode=NULL, tagScheme=NULL, analyst
         #dmsg("saveTag(file=", file, ", level=", level, ", tagCode=", tagCode, ", tagLabel=", tagLabel, ", analyst=", analyst, ", dbname=", dbname, ")\n")
         dmsg("saving tag ", tagCode, " at level ", level, "\n")
         df <- data.frame(file=file, level=level, tagCode=tagCode, tagLabel=tagLabel, analyst=analyst, analysisTime=Sys.time())
-        con <- dbConnect(RSQLite::SQLite(), dbname)
-        RSQLite::dbAppendTable(con, "tags", df)
-        RSQLite::dbDisconnect(con)
+        con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+        DBI::dbAppendTable(con, "tags", df)
+        DBI::dbDisconnect(con)
     } else {
         showNotification(paste("tag", tagCode, "not understood"))
     }
@@ -115,7 +115,7 @@ saveTag <- function(file=NULL, level=NULL, tagCode=NULL, tagScheme=NULL, analyst
 
 findNearestLevel <- function(x, y, usr, data, view)
 {
-    dmsg("findNearestLevel(x=", x, ", y=", y, ", ..., view=", view, ")\n")
+    dmsg("findNearestLevel(x=", x, ", y=", y, ", ..., view=\"", view, "\")\n")
     #dmsg("  ", vectorShow(usr))
     dx2 <- (usr[2] - usr[1])^2
     dy2 <- (usr[4] - usr[3])^2
@@ -229,7 +229,7 @@ ui <- fluidPage(
             column(12, uiOutput("tagHint"))),
         fluidRow(
             uiOutput("plotPanel"))),
-    conditionalPanel("input.tabselected==2",
+    conditionalPanel("input.tabselected == 2",
         fluidRow(uiOutput("summary"))))
 
 getUserName <- function()
@@ -584,14 +584,16 @@ server <- function(input, output, session) {
         {
             state$stepTag # to cause shiny to update this
             # FIXME: how to render more info, e.g. dbname, present file, etc?
-            con <- dbConnect(SQLite(), dbname)
-            tags <- dbReadTable(con, "tags")
-            dbDisconnect(con)
+            con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+            tags <- DBI::dbReadTable(con, "tags")
+            DBI::dbDisconnect(con)
             # Make time readible
-            t <- numberAsPOSIXct(tags$analysisTime)
+            t <- oce::numberAsPOSIXct(tags$analysisTime)
             tags$analysisTime <- format(t, "%Y-%m-%d %H:%M:%S UTC")
+            o <- order(tags$analysisTime, decreasing=TRUE)
+            tags <- tags[o, ]
             #renderTable(tags)
-            renderDataTable(tags)
+            DT::renderDT(tags)
         })
  
     output$plotPanel <- renderUI(

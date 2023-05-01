@@ -37,10 +37,17 @@
 #' ctdTag(file=file)
 #'}
 #'
+## importFrom DBI dbClearResult dbConnect dbCreateTable dbFetch dbListTables dbReadTable dbSendQuery dbWriteTable
+#'
+#' @importFrom DT renderDT
+#'
+#' @importFrom oce numberAsPOSIXct read.oce resizableLabel swSigmaTheta swTheta
+#'
+## importFrom RSQLite dbAppendTable dbConnect dbDisconnect dbReadTable dbWriteTable SQLite
+#'
 #' @importFrom shiny runApp shinyOptions
-#' @importFrom oce numberAsPOSIXct read.oce
-#' @importFrom DBI dbClearResult dbConnect dbCreateTable dbFetch dbListTables dbReadTable dbSendQuery dbWriteTable
-#' @importFrom RSQLite SQLite
+#'
+#' @importFrom shinyjs runjs useShinyjs
 #'
 #' @author Dan Kelley
 #'
