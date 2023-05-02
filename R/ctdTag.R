@@ -1,7 +1,9 @@
 #' Tag CTD features
 #'
-#' @param file character value specifying the name of a file containing CTD data,
-#' which must be in a format handled by [oce::read.oce()].
+#' @param file character value specifying the name of a file containing CTD data.
+#' This file must be in a format that is handled by [oce::read.oce()].
+#' (PLAN: if this ends in `/` then it is a directory, and a file-open
+#' controller is provided for file selection. FIXME)
 #'
 #' @param dbname optional character value specifying the name of a sqlite
 #' database used to hold tagging information.  If not provided, a file name
@@ -57,9 +59,9 @@
 #' @author Dan Kelley
 #'
 #' @export
-ctdTag <- function(file=NULL, dbname=getDatabaseName("ctdTag"), tagScheme=NULL, height=550, clickDistanceCriterion=0.02, debug=0)
+ctdTag <- function(file, dbname=getDatabaseName("ctdTag"), tagScheme=NULL, height=550, clickDistanceCriterion=0.02, debug=0)
 {
-    if (is.null(file))
+    if (missing(file))
         stop("must give 'file'")
     if (is.null(tagScheme)) {
         labels <- c("iTop", "iTop?", "iBot", "iBot?", "WS", "WS?", "CF", "CF?")
