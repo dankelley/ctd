@@ -132,7 +132,7 @@ findNearestLevel <- function(x, y, usr, data, view)
         stop("view=\"", view, "\" is not handled yet")
     }
     relativeDistance <- sqrt(d2[nearest])
-    dmsg2(sprintf("  returning nearest=%d, relativeDistance=%.4f\n", nearest, relativeDistance))
+    dmsg(sprintf("  returning nearest=%d, relativeDistance=%.4f\n", nearest, relativeDistance))
     list(nearest=nearest, relativeDistance=relativeDistance)
 }
 
@@ -419,16 +419,20 @@ server <- function(input, output, session) {
         {
             msg("input$click\n")
             closest <- findNearestLevel(input$click$x, input$click$y, state$usr, state$data, input$view)
-            dmsg(sprintf("  nearest=%d, relativeDistance=%.1f%%\n", closest$nearest, 100*closest$relativeDistance))
+            dmsg(sprintf("  nearest=%d, relativeDistance=%.1f%%ercent\n", closest$nearest, 100*closest$relativeDistance))
             state$focusLevel <- if (closest$relativeDistance < clickDistanceCriterion) closest$nearest else NULL
         })
 
     # Handle brushing events.  First, clear the focus.  Then set visibility
-    # based on the pressure limits of brushed region.
+    # based on the pressure limits of brushed region. Ignore very small brush
+    # areas, which usually result from a sloppy click.  R/shiny does not make
+    # it easy to distinguish between clicks that are alone, and clicks that
+    # start a brushing event.  Whether the present setting work with long data
+    # files is an open question -- the UI might need some alteration in the
+    # brush parameters.
     observeEvent(input$brush,
         {
             msg("input$brush\n")
-            # Ignore very small brush areas (likely a sloppy click)
             xBrushSpan <- input$brush$xmax - input$brush$xmin
             yBrushSpan <- input$brush$ymax - input$brush$ymin
             xFraction <- with(input$brush, (xmax-xmin) / (domain$right - domain$left))
@@ -444,10 +448,10 @@ server <- function(input, output, session) {
             }
             state$focusLevel <- NULL
             if (grepl("profile", input$view)) {
-                dmsg("  handling brush action on a profile (only y extent considered)\n")
+                dmsg("handling brush action on a profile (only y extent considered)\n")
                 visible <- with(input$brush, ymin <= state$data$yProfile & state$data$yProfile <= ymax)
             } else if (input$view == "TS") {
-                dmsg("  handling brush action on a TS diagram (consider both S and T)\n")
+                dmsg("handling brush action on a TS diagram (consider both S and T)\n")
                 x <- state$data$salinity
                 y <- state$data$theta
                 # Find first and last pressures spanning box, so TS extrema are retained.
@@ -468,7 +472,7 @@ server <- function(input, output, session) {
                     stop("bug: first must be positive, but it is ", first)
                 if (last <= 0)
                     stop("bug: last must be positive, but it is ", last)
-                #dmsg1(sprintf("  first=%d last=%d\n", first, last))
+                dmsg1(sprintf("  first=%d last=%d\n", first, last))
                 visible <- rep(FALSE, npoints)
                 visible[first:last] <- TRUE
             }
