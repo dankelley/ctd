@@ -15,7 +15,7 @@ pluralize <- function(n=1, singular="item", plural=NULL)
 
 # Messages to R console (stderr() file)
 dt <- function(t, t0)
-    sprintf("[%9.6f] ", t - t0)
+    sprintf("%9.6f: ", t - t0)
 msg <- function(...) {
     t <- as.numeric(Sys.time())
     cat(file=stderr(), dt(t, t0), ..., sep="")
@@ -106,7 +106,7 @@ saveTag <- function(file=NULL, level=NULL, tagCode=NULL, tagScheme=NULL, analyst
 # typically as set by a mouse click.
 findNearestLevel <- function(x, y, usr, data, view)
 {
-    dmsg("findNearestLevel(x=", x, ", y=", y, ", ..., view=\"", view, "\")\n")
+    dmsg2("findNearestLevel(x=", x, ", y=", y, ", ..., view=\"", view, "\")\n")
     dx2 <- (usr[2] - usr[1])^2
     dy2 <- (usr[4] - usr[3])^2
     dmsg2("  ", oce::vectorShow(dx2))
@@ -132,7 +132,7 @@ findNearestLevel <- function(x, y, usr, data, view)
         stop("view=\"", view, "\" is not handled yet")
     }
     relativeDistance <- sqrt(d2[nearest])
-    dmsg(sprintf("  returning nearest=%d, relativeDistance=%.4f\n", nearest, relativeDistance))
+    dmsg(sprintf("click near level %d-th, %.3f%% from data\n", nearest, 100*relativeDistance))
     list(nearest=nearest, relativeDistance=relativeDistance)
 }
 
@@ -211,8 +211,8 @@ ui <- fluidPage(
             column(9, uiOutput("tagMsg")),
             actionButton("goDown", HTML("&darr;")),
             actionButton("goUp", HTML("&uarr;")),
-            actionButton("zoomOut", HTML("-")),
-            actionButton("zoomIn", HTML("+"))),
+            actionButton("zoomOut", HTML("-")), # can do e.g. img(src="/zoom_out.png")
+            actionButton("fullscale", HTML("1:1"))),
         fluidRow(
             style="background:#e6f3ff;cursor:crosshair;color:red;margin-top:0px;",
             column(12, uiOutput("tagHint"))),
@@ -312,6 +312,7 @@ server <- function(input, output, session) {
             }
         }
     }
+    dprint(tagScheme)
     createDatabase(dbname=dbname, tagScheme=tagScheme)
     values <- reactiveValues(brush=NULL)
     # FIXME: possibly add get-new-file mechanism near this spot
@@ -391,23 +392,16 @@ server <- function(input, output, session) {
             }
          })
 
-    observeEvent(input$zoomIn,
+    observeEvent(input$fullscale,
         {
-            dmsg("responding to 'zoomIn'\n")
-            state$focusLevel <- NULL # remove focus
-            limits <- visibleToLimits(state$visible)
-            ndata <- length(state$visible)
-            dmsg(oce::vectorShow(limits))
-            span <- max(diff(limits) / 4, 10)
-            dmsg(oce::vectorShow(span))
-            limits <- limitsTrim(limits + c(span, -span), ndata)
-            state$visible <- limitsToVisible(limits, ndata)
+            dmsg("responding to '1:1'\n")
+            state$visible <<- rep(TRUE, length(state$visible))
         })
  
     observeEvent(input$zoomOut,
         {
             dmsg("responding to 'zoomOut'\n")
-            state$focusLevel <- NULL # remove focus
+            #state$focusLevel <- NULL # remove focus
             limits <- visibleToLimits(state$visible)
             ndata <- length(state$visible)
             span <- max(diff(limits) / 4, 10)
@@ -417,9 +411,9 @@ server <- function(input, output, session) {
 
     observeEvent(input$click,
         {
-            msg("input$click\n")
+            dmsg("responding to input$click\n")
             closest <- findNearestLevel(input$click$x, input$click$y, state$usr, state$data, input$view)
-            dmsg(sprintf("  nearest=%d, relativeDistance=%.1f%%ercent\n", closest$nearest, 100*closest$relativeDistance))
+            #dmsg(sprintf("  nearest=%d, relativeDistance=%.1f%%\n", closest$nearest, 100*closest$relativeDistance))
             state$focusLevel <- if (closest$relativeDistance < clickDistanceCriterion) closest$nearest else NULL
         })
 
@@ -432,7 +426,7 @@ server <- function(input, output, session) {
     # brush parameters.
     observeEvent(input$brush,
         {
-            msg("input$brush\n")
+            dmsg("responding to input$brush\n")
             xBrushSpan <- input$brush$xmax - input$brush$xmin
             yBrushSpan <- input$brush$ymax - input$brush$ymin
             xFraction <- with(input$brush, (xmax-xmin) / (domain$right - domain$left))
@@ -448,10 +442,10 @@ server <- function(input, output, session) {
             }
             state$focusLevel <- NULL
             if (grepl("profile", input$view)) {
-                dmsg("handling brush action on a profile (only y extent considered)\n")
+                dmsg1("  profile case: only y extent considered\n")
                 visible <- with(input$brush, ymin <= state$data$yProfile & state$data$yProfile <= ymax)
             } else if (input$view == "TS") {
-                dmsg("handling brush action on a TS diagram (consider both S and T)\n")
+                dmsg1("  TS case: consider both S and T\n")
                 x <- state$data$salinity
                 y <- state$data$theta
                 # Find first and last pressures spanning box, so TS extrema are retained.
@@ -472,7 +466,7 @@ server <- function(input, output, session) {
                     stop("bug: first must be positive, but it is ", first)
                 if (last <= 0)
                     stop("bug: last must be positive, but it is ", last)
-                dmsg1(sprintf("  first=%d last=%d\n", first, last))
+                dmsg2(sprintf("  first=%d last=%d\n", first, last))
                 visible <- rep(FALSE, npoints)
                 visible[first:last] <- TRUE
             }
@@ -585,7 +579,7 @@ server <- function(input, output, session) {
             x <- state$data$theta[state$visible]
             y <- state$data$yProfile[state$visible]
             if (length(x) > 0L && length(y) > 0L) {
-                dmsg("about to plot T profile.\n")
+                dmsg("about to plot T profile\n")
                 par(mar=c(1, 3.3, 3, 1.5), mgp=c(1.9, 0.5, 0))
                 plot(x, y, ylim=rev(range(y)), yaxs="i", type=input$plotType,
                     cex=default$Tprofile$cex, col=default$Tprofile$col, lwd=default$Tprofile$lwd, pch=default$Tprofile$pch,
@@ -613,7 +607,7 @@ server <- function(input, output, session) {
             x <- state$data$salinity[state$visible]
             y <- state$data$yProfile[state$visible]
             if (length(x) > 0L && length(y) > 0L) {
-                dmsg("about to plot S profile.\n")
+                dmsg("about to plot S profile\n")
                 par(mar=c(1, 3, 3, 1), mgp=c(1.9, 0.5, 0))
                 plot(x, y, ylim=rev(range(y)), yaxs="i", type=input$plotType,
                     cex=default$Sprofile$cex, col=default$Sprofile$col, lwd=default$Sprofile$lwd, pch=default$Sprofile$pch,
@@ -641,7 +635,7 @@ server <- function(input, output, session) {
             x <- state$data$sigmaTheta[state$visible]
             y <- state$data$yProfile[state$visible]
             if (length(x) > 0L && length(y) > 0L) {
-                dmsg("about to plot sigmaTheta profile.\n")
+                dmsg("about to plot sigmaTheta profile\n")
                 par(mar=c(1, 3.3, 3, 1), mgp=c(1.9, 0.5, 0))
                 plot(x, y, ylim=rev(range(y)), yaxs="i", type=input$plotType,
                     cex=default$Tprofile$cex, col=default$Tprofile$col, lwd=default$Tprofile$lwd, pch=default$Tprofile$pch,
@@ -669,7 +663,7 @@ server <- function(input, output, session) {
             x <- state$data$salinity[state$visible]
             y <- state$data$temperature[state$visible]
             if (length(x) > 0L && length(y) > 0L) {
-                dmsg("about to plot TS.\n")
+                dmsg("about to plot TS\n")
                 par(mar=c(1, 3, 3, 1), mgp=c(1.9, 0.5, 0))
                 p <- state$data$pressure[state$visible]
                 ctd <- as.ctd(x, y, p)
