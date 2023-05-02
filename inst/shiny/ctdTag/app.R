@@ -409,10 +409,10 @@ server <- function(input, output, session) {
             state$visible <- limitsToVisible(limits, ndata)
         })
 
-    observeEvent(input$click,
+    observeEvent(input$dblclick,
         {
-            dmsg("responding to input$click\n")
-            closest <- findNearestLevel(input$click$x, input$click$y, state$usr, state$data, input$view)
+            dmsg("responding to input$dblclick\n")
+            closest <- findNearestLevel(input$dblclick$x, input$dblclick$y, state$usr, state$data, input$view)
             #dmsg(sprintf("  nearest=%d, relativeDistance=%.1f%%\n", closest$nearest, 100*closest$relativeDistance))
             state$focusLevel <- if (closest$relativeDistance < clickDistanceCriterion) closest$nearest else NULL
         })
@@ -440,7 +440,7 @@ server <- function(input, output, session) {
                         100*fraction, 100*brushCriterion))
                 return()
             }
-            state$focusLevel <- NULL
+            #state$focusLevel <- NULL
             if (grepl("profile", input$view)) {
                 dmsg1("  profile case: only y extent considered\n")
                 visible <- with(input$brush, ymin <= state$data$yProfile & state$data$yProfile <= ymax)
@@ -568,7 +568,7 @@ server <- function(input, output, session) {
             shinyjs::runjs(sprintf("document.getElementById('plot_brush').remove()"))
             plotOutput("plot",
                 brush=brushOpts("brush", delay=2000, resetOnNew=TRUE),
-                click=clickOpts("click"))
+                dblclick=clickOpts("dblclick"))
         })
 
     output$plot <- renderPlot({
