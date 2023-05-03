@@ -6,6 +6,7 @@
 \usage{
 ctdTag(
   file,
+  dir,
   dbname = getDatabaseName("ctdTag"),
   tagScheme = NULL,
   height = 550,
@@ -15,9 +16,11 @@ ctdTag(
 }
 \arguments{
 \item{file}{character value specifying the name of a file containing CTD data.
-This file must be in a format that is handled by \code{\link[oce:read.oce]{oce::read.oce()}}.
-(PLAN: if this ends in \code{/} then it is a directory, and a file-open
-controller is provided for file selection. FIXME)}
+This file must be in a format that is handled by \code{\link[oce:read.oce]{oce::read.oce()}}.  You may
+not supply \code{dir} if \code{file} is supplied.}
+
+\item{dir}{character value specifying the name of a directory containing
+files that hold CTD data. You may not supply \code{file} if \code{dir} is supplied.}
 
 \item{dbname}{optional character value specifying the name of a sqlite
 database used to hold tagging information.  If not provided, a file name

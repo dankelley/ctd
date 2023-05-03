@@ -1,9 +1,12 @@
 #' Tag CTD features
 #'
 #' @param file character value specifying the name of a file containing CTD data.
-#' This file must be in a format that is handled by [oce::read.oce()].
-#' (PLAN: if this ends in `/` then it is a directory, and a file-open
-#' controller is provided for file selection. FIXME)
+#' This file must be in a format that is handled by [oce::read.oce()].  You may
+#' not supply `dir` if `file` is supplied.
+#'
+#' @param dir character value specifying the name of a directory containing
+#' files that hold CTD data. You may not supply `file` if `dir` is supplied.
+#' NOTE: the `dir` parameter is not actually handled yet (FIXME).
 #'
 #' @param dbname optional character value specifying the name of a sqlite
 #' database used to hold tagging information.  If not provided, a file name
@@ -59,10 +62,17 @@
 #' @author Dan Kelley
 #'
 #' @export
-ctdTag <- function(file, dbname=getDatabaseName("ctdTag"), tagScheme=NULL, height=550, clickDistanceCriterion=0.02, debug=0)
+ctdTag <- function(file, dir, dbname=getDatabaseName("ctdTag"), tagScheme=NULL, height=550, clickDistanceCriterion=0.02, debug=0)
 {
-    if (missing(file))
-        stop("must give 'file'")
+    if (missing(file) && missing(dir))
+        stop("must give 'file' or 'dir'")
+    if (!missing(file) && !missing(dir))
+        stop("do not give both 'file' and 'dir'")
+    if (!missing(dir)) {
+        # FIXME(CFR): make this work
+        print(list.files(dir, pattern="cnv", full.names=TRUE))
+        stop("FIXME: code more here")
+    }
     if (is.null(tagScheme)) {
         labels <- c("iTop", "iTop?", "iBot", "iBot?", "WS", "WS?", "CF", "CF?")
         tagScheme <- data.frame(tagCode=seq_along(labels), tagLabel=labels)
