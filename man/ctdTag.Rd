@@ -20,7 +20,8 @@ This file must be in a format that is handled by \code{\link[oce:read.oce]{oce::
 not supply \code{dir} if \code{file} is supplied.}
 
 \item{dir}{character value specifying the name of a directory containing
-files that hold CTD data. You may not supply \code{file} if \code{dir} is supplied.}
+files that hold CTD data. You may not supply \code{file} if \code{dir} is supplied.
+NOTE: the \code{dir} parameter is not actually handled yet (FIXME).}
 
 \item{dbname}{optional character value specifying the name of a sqlite
 database used to hold tagging information.  If not provided, a file name

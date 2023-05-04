@@ -30,11 +30,20 @@ dmsg2 <- function(...)
 dprint <- function(...)
     if (debug > 0) print(file=stderr(), ...)
 
-# Create a database, or reuse an existing one
+# Create a database, or reuse an existing one. In the latter case, update as
+# appropriate (not done yet, since still at initial version).
 createDatabase <- function(dbname=getDatabaseName(), tagScheme=NULL)
 {
     if (file.exists(dbname)) {
         dmsg("using existing database \"", dbname, "\"\n")
+        #<later?> # FIXME: update if necessary.
+        #<later?> con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+        #<later?> version <- DBI::dbReadTable(con, "version")
+        #<later?> if (version[1] == 1 && version[2] == 0) {
+        #<later?>     dmsg("updating from version 1.0 to version 1.1 by adding 'files' table\n")
+        #<later?>     DBI::dbWriteTable(con, "version", c("major"=1L, "minor"=1L))
+        #<later?>     DBI::dbCreateTable(con, "files", c("file"="TEXT", "analysistminor"="INTEGER"))
+        #<later?> }
     } else {
         dmsg("creating database \"", dbname, "\"\n")
         if (is.null(tagScheme))
@@ -208,11 +217,13 @@ ui <- fluidPage(
             column(1,  actionButton("clear", "Clear brush"))),
         fluidRow(
             style="background:#e6f3ff;cursor:crosshair;color:black;margin-top:0px;",
-            column(9, uiOutput("tagMsg")),
-            actionButton("goDown", HTML("&darr;")),
-            actionButton("goUp", HTML("&uarr;")),
-            actionButton("zoomOut", HTML("-")), # can do e.g. img(src="/zoom_out.png")
-            actionButton("fullscale", HTML("1:1"))),
+            column(7, uiOutput("tagMsg")),
+            column(1, uiOutput("noTags")),
+            column(4,
+                actionButton("goDown", HTML("&darr;")),
+                actionButton("goUp", HTML("&uarr;")),
+                actionButton("zoomOut", HTML("-")), # can do e.g. img(src="/zoom_out.png")
+                actionButton("fullscale", HTML("1:1")))),
         fluidRow(
             style="background:#e6f3ff;cursor:crosshair;color:red;margin-top:0px;",
             column(12, uiOutput("tagHint"))),
@@ -232,6 +243,13 @@ getUserName <- function()
 
 getDatabaseName <- function(prefix="ctd_tag")
     file.path(paste0(prefix, "_", getUserName(), ".db"))
+
+# Ignores a tag at level=0 (which means user indicate "nothing to tag")
+countTags <- function(file, dbname)
+{
+    tags <- getTags(file=file, dbname=dbname)
+    sum(tags$file == file & tags$level > 0L)
+}
 
 server <- function(input, output, session) {
     plotting <- FALSE
@@ -312,6 +330,11 @@ server <- function(input, output, session) {
             }
         }
     }
+    focusIsVisible <- function() {
+        dmsg("focusIsVisible: focusLevel=", state$focusLevel, "; returning ", state$visible[state$focusLevel], "\n")
+        state$visible[state$focusLevel]
+    }
+
     dprint(tagScheme)
     createDatabase(dbname=dbname, tagScheme=tagScheme)
     values <- reactiveValues(brush=NULL)
@@ -368,26 +391,24 @@ server <- function(input, output, session) {
 
     observeEvent(input$goUp,
         {
-            dmsg("responding to 'goUp'\n")
-            state$focusLevel <- NULL # remove focus
-            if (!head(state$visible, 1)) {
+            if (!head(state$visible, 1)) { # cannot go up if already showing top level
+                dmsg("responding to 'goUp'\n")
                 ndata <- length(state$visible)
                 limits <- visibleToLimits(state$visible)
                 span <- diff(limits)
-                limits <- limitsTrim(limits - (1/4)*span, ndata)
+                limits <- limitsTrim(limits - (1/3)*span, ndata)
                 state$visible <- limitsToVisible(limits, ndata)
             }
         })
 
     observeEvent(input$goDown,
         {
-            dmsg("responding to 'goDown'\n")
-            state$focusLevel <- NULL # remove focus
-            if (!tail(state$visible, 1)) {
+            if (!tail(state$visible, 1)) { # cannot go down if already showing bottom level
+                dmsg("responding to 'goDown'\n")
                 ndata <- length(state$visible)
                 limits <- visibleToLimits(state$visible)
                 span <- diff(limits)
-                limits <- limitsTrim(limits + (1/4)*span, ndata)
+                limits <- limitsTrim(limits + (1/3)*span, ndata)
                 state$visible <- limitsToVisible(limits, ndata)
             }
          })
@@ -513,16 +534,14 @@ server <- function(input, output, session) {
     output$tagMsg <- renderText(
         {
             state$stepTag # to cause shiny to update this
-            file <- state$file
-            tags <- getTags(state$file, dbname=dbname)
-            tags <- tags[tags$file == file, ]
-            ntags <- nrow(tags)
-            tagMsg <- pluralize(nrow(tags), "tag")
+            # Only count tags with level 1 and higher, because a tag at level=0
+            # means "nothing to tag".
+            tagMsg <- pluralize(countTags(state$file, dbname), "tag")
             #focusMsg <- if (focusIsTagged()) paste0("| focus, at level ", state$focusLevel, ", is tagged") else ""
-            pvisible <- data$pressure[state$visible]
+            #pvisible <- data$pressure[state$visible]
             #viewMsg <- sprintf("%.1f to %.1f dbar", min(pvisible), max(pvisible))
             #paste0(file, " | ", getDatabaseName(), " | ", tagMsg, " ", focusMsg, " | ", viewMsg)
-            paste0(file, " | ", dbname, " | ", tagMsg)
+            paste0(state$file, " | ", dbname, " | ", tagMsg)
         })
 
     output$tagHint <- renderText(
@@ -531,18 +550,20 @@ server <- function(input, output, session) {
                 tags <- getTags(state$file, dbname=dbname)
                 if (state$focusLevel %in% tags$level) {
                     focusTag <- tags[tags$level == state$focusLevel, "tagLabel"]
-                    sprintf("Level %d (%.1f dbar) tagged \"%s\"; type 'x' to remove tag.",
+                    sprintf("%s %d (%.1f dbar) tagged \"%s\"; type 'x' to remove tag.",
+                        if (focusIsVisible()) "Level" else "OFFSCALE level",
                         state$focusLevel,
                         data$pressure[state$focusLevel],
                         focusTag)
                 } else {
-                    sprintf("Level %d (%.1f dbar): may tag %s.",
+                    sprintf("%s %d (%.1f dbar): may tag %s.",
+                        if (focusIsVisible()) "Level" else "OFFSCALE level",
                         state$focusLevel,
                         data$pressure[state$focusLevel],
                         paste(tagScheme$tagCode, tagScheme$tagLabel, collapse=", ", sep=" for "))
                 }
             } else {
-                "Click mouse near a point to focus on it (perhaps to tag it)."
+                "Double-click mouse near a point to focus on it."
             }
         })
 
@@ -590,7 +611,7 @@ server <- function(input, output, session) {
                         points(state$data$theta[state$focusLevel], state$data$yProfile[state$focusLevel],
                             cex=cex, col=col, lwd=lwd, pch=pch))
                 }
-                tags <- getTags(state$file, dbname=dbname)
+                tags <- subset(getTags(state$file, dbname=dbname), level > 0L,)
                 if (nrow(tags) > 0) {
                     with(default$tag,
                         points(state$data$theta[tags$level], state$data$yProfile[tags$level],
@@ -618,7 +639,7 @@ server <- function(input, output, session) {
                         points(state$data$salinity[state$focusLevel], state$data$yProfile[state$focusLevel],
                             cex=cex, col=col, lwd=lwd, pch=pch))
                 }
-                tags <- getTags(state$file, dbname=dbname)
+                tags <- subset(getTags(state$file, dbname=dbname), level > 0L,)
                 if (nrow(tags) > 0) {
                     with(default$tag,
                         points(state$data$salinity[tags$level], state$data$yProfile[tags$level],
@@ -646,7 +667,7 @@ server <- function(input, output, session) {
                         points(state$data$sigmaTheta[state$focusLevel], state$data$yProfile[state$focusLevel],
                             cex=cex, col=col, lwd=lwd, pch=pch))
                 }
-                tags <- getTags(state$file, dbname=dbname)
+                tags <- subset(getTags(state$file, dbname=dbname), level > 0L,)
                 if (nrow(tags) > 0) {
                     with(default$tag,
                         points(state$data$sigmaTheta[tags$level], state$data$yProfile[tags$level],
@@ -680,7 +701,7 @@ server <- function(input, output, session) {
                         points(state$data$salinity[state$focusLevel], state$data$theta[state$focusLevel],
                             cex=cex, col=col, lwd=lwd, pch=pch))
                 }
-                tags <- getTags(state$file, dbname=dbname)
+                tags <- subset(getTags(state$file, dbname=dbname), level > 0L,)
                 if (nrow(tags) > 0) {
                     with(default$tag,
                         points(state$data$salinity[tags$level], state$data$theta[tags$level],
