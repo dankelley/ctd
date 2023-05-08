@@ -1,5 +1,10 @@
 # vim:textwidth=80:expandtab:shiftwidth=4:softtabstop=4
 
+dbVersion <- data.frame(major=1L, minor=1L) # 'minor' may not exceed 100
+# conversions that happen automatically:
+# MAJ | MIN | ACTION
+#   1 |   0 | add 'files' table; convert 'tags' to connect with this
+
 library(oce)
 options(oceEOS="unesco") # avoid the hassle of supporting two EOSs
 debug <- 1
@@ -15,7 +20,7 @@ pluralize <- function(n=1, singular="item", plural=NULL)
 
 # Messages to R console (stderr() file)
 dt <- function(t, t0)
-    sprintf("%9.6f: ", t - t0)
+    sprintf("%7.4f: ", t - t0)
 msg <- function(...) {
     t <- as.numeric(Sys.time())
     cat(file=stderr(), dt(t, t0), ..., sep="")
@@ -36,14 +41,44 @@ createDatabase <- function(dbname=getDatabaseName(), tagScheme=NULL)
 {
     if (file.exists(dbname)) {
         dmsg("using existing database \"", dbname, "\"\n")
-        #<later?> # FIXME: update if necessary.
-        #<later?> con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
-        #<later?> version <- DBI::dbReadTable(con, "version")
-        #<later?> if (version[1] == 1 && version[2] == 0) {
-        #<later?>     dmsg("updating from version 1.0 to version 1.1 by adding 'files' table\n")
-        #<later?>     DBI::dbWriteTable(con, "version", c("major"=1L, "minor"=1L))
-        #<later?>     DBI::dbCreateTable(con, "files", c("file"="TEXT", "analysistminor"="INTEGER"))
-        #<later?> }
+        con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+        o <- DBI::dbReadTable(con, "version")
+        versionOld <- as.numeric(sprintf("%d.%02d", o$major, o$minor))
+        versionNew <- as.numeric(sprintf("%d.%02d", dbVersion$major, dbVersion$minor))
+        dmsg1(vectorShow(versionOld))
+        dmsg1(vectorShow(versionNew))
+        if (versionOld < versionNew) {
+            msg("Database version (", o$major, ".", o$minor, ") requires updating...\n")
+            if (versionOld < 1.01) {
+                msg("  Update `version` table to be ", dbVersion$major, ".", dbVersion$minor, "\n")
+                DBI::dbWriteTable(con, "version", dbVersion, overwrite=TRUE)
+                msg("  Create and populate `files` table...\n")
+                tags <- DBI::dbReadTable(con, "tags")
+                msg("    Acquired content of `tags` table\n")
+                filenames <- sort(unique(tags$file))
+                nfilenames <- length(filenames)
+                #dprint(filenames)
+                DBI::dbCreateTable(con, "files", c(fileId="INTEGER", fileName="TEXT", fileHasTags="INTEGER"))
+                msg("    Created `files` schema\n")
+                files <- data.frame(fileId=seq_len(nfilenames), fileName=filenames, fileHasTags=rep(1L, nfilenames))
+                msg("    Created `files` content (", nfilenames, " entries)\n")
+                DBI::dbWriteTable(con, "files", files, overwrite=TRUE)
+                msg("    Saved `files` in database\n")
+                msg("  Update `tags` table...\n")
+                tmp <- merge(files, tags, by.x="fileName", by.y="file")
+                msg("    Updated `tags` table by merging with `files` table\n")
+                tmp$fileName <- NULL
+                tmp$fileHasTags <- NULL
+                tmp$tagLabel <- NULL
+                msg("    Removed redundant columns from the newly-created `tags` table\n")
+                DBI::dbWriteTable(con, "tags", tmp, overwrite=TRUE)
+                msg("    Saved updated `tags` table to database.\n")
+                msg("Database has been updated to version ", dbVersion$major, ".", dbVersion$minor, "\n")
+            }
+        } else {
+            dmsg("database is up-to-date, so does not need alteration\n")
+        }
+        DBI::dbDisconnect(con)
     } else {
         dmsg("creating database \"", dbname, "\"\n")
         if (is.null(tagScheme))
@@ -53,7 +88,8 @@ createDatabase <- function(dbname=getDatabaseName(), tagScheme=NULL)
         DBI::dbWriteTable(con, "version", data.frame(major=1L, minor=0L), overwrite=TRUE)
         DBI::dbCreateTable(con, "tagScheme", c("tagCode"="INTEGER", "tagLabel"="TEXT"))
         DBI::dbWriteTable(con, "tagScheme", tagScheme, overwrite=TRUE)
-        DBI::dbCreateTable(con, "tags", c("file"="TEXT", level="INT", tagCode="INT", tagLabel="TEXT",
+        DBI::dbCreateTable(con, "files", c(fileId="INTEGER", fileName="TEXT", fileHasTags="INTEGER"))
+        DBI::dbCreateTable(con, "tags", c(fileId="INTEGER", level="INTEGER", tagCode="INTEGER",
                 analyst="TEXT", analysisTime="TIMESTAMP"))
         DBI::dbDisconnect(con)
     }
@@ -62,20 +98,19 @@ createDatabase <- function(dbname=getDatabaseName(), tagScheme=NULL)
 # Get tags for a particular file.
 getTags <- function(file=NULL, dbname=NULL)
 {
-    tags <- NULL
-    #dmsg("getTags(file=\"", file, "\", dbname=\"", dbname, "\"\n")
+    rval <- NULL
+    dmsg1("getTags(file=\"", file, "\", ...)\n")
     if (file.exists(dbname)) {
         con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
-        if (DBI::dbExistsTable(con, "tags")) {
-            tags <- DBI::dbReadTable(con, "tags")
-            DBI::dbDisconnect(con)
-            if (!is.null(file)) {
-                tags <- tags[tags$file == file, ]
-            }
-        }
+        files <- DBI::dbReadTable(con, "files")
+        tags <- DBI::dbReadTable(con, "tags")
+        tagScheme <- DBI::dbReadTable(con, "tagScheme")
+        DBI::dbDisconnect(con)
+        rval <- subset(tags, fileId==subset(files, fileName==file)$fileId)
+        rval <- merge(rval, tagScheme, by="tagCode")
     }
-    #dmsg(oce::vectorShow(tags))
-    tags
+    dmsg1("  returning ", nrow(rval), " tags\n")
+    rval
 }
 
 # Remove a tag at a given level of a given file
@@ -84,7 +119,9 @@ removeTag <- function(file=NULL, level=NULL, dbname=NULL)
     dmsg("removeTag() at level ", level, "\n")
     con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
     tags <- DBI::dbReadTable(con, "tags")
-    remove <- which(tags$file == file & tags$level == level)
+    files <- DBI::dbReadTable(con, "files")
+    tags <- subset(tags, fileId==subset(files, fileName==file)$fileId)
+    remove <- which(tags$level == level)
     if (length(remove)) {
         dmsg1("    removing ", paste(remove, collapse=" "), "-th tag\n")
         tags <- tags[-remove, ]
@@ -95,15 +132,20 @@ removeTag <- function(file=NULL, level=NULL, dbname=NULL)
     DBI::dbDisconnect(con)
 }
 
-# Save a tag
-saveTag <- function(file=NULL, level=NULL, tagCode=NULL, tagScheme=NULL, analyst=NULL, dbname=NULL)
+# Save a tag.
+addTag <- function(file=NULL, level=NULL, tagCode=NULL, tagScheme=NULL, analyst=NULL, dbname=NULL)
 {
     tagLabel <- tagScheme[which(tagCode==tagScheme$tagCode), "tagLabel"]
     if (identical(length(tagLabel), 1L)) {
-        #dmsg("saveTag(file=", file, ", level=", level, ", tagCode=", tagCode, ", tagLabel=", tagLabel, ", analyst=", analyst, ", dbname=", dbname, ")\n")
+        #dmsg("addTag(file=", file, ", level=", level, ", tagCode=", tagCode, ", tagLabel=", tagLabel, ", analyst=", analyst, ", dbname=", dbname, ")\n")
         dmsg("saving tag ", tagCode, " at level ", level, "\n")
-        df <- data.frame(file=file, level=level, tagCode=tagCode, tagLabel=tagLabel, analyst=analyst, analysisTime=Sys.time())
+        # FIXME: have to look up file etc (see getTags() ...)
         con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+        tags <- DBI::dbReadTable(con, "tags")
+        files <- DBI::dbReadTable(con, "files")
+        fileId <- subset(files, fileName==file)$fileId
+        # FIXME: tagLabel not needed here
+        df <- data.frame(fileId=fileId, level=level, tagCode=tagCode, tagLabel=tagLabel, analyst=analyst, analysisTime=Sys.time())
         DBI::dbAppendTable(con, "tags", df)
         DBI::dbDisconnect(con)
     } else {
@@ -201,7 +243,7 @@ ui <- fluidPage(
             column(1, actionButton("help", "Help")),
             column(2, selectInput("debug", label=NULL,
                     choices=c("debug=0"=0, "debug=1"=1, "debug=2"=2),
-                    selected=debug)),
+                    selected=getShinyOption("debug"))),
             column(2, selectInput("view", label=NULL,
                     choices=c("S prof."="S profile",
                         "T prof."="T profile",
@@ -215,7 +257,7 @@ ui <- fluidPage(
             column(2, selectInput("plotType", label=NULL,
                     choices=c("type='l'"="l", "type='p'"="p", "type='o'"="o"),
                     selected="o")),
-            column(1,  actionButton("clear", "Clear brush"))),
+            column(1, uiOutput("notag"))),
         fluidRow(
             style="background:#e6f3ff;cursor:crosshair;color:black;margin-top:0px;",
             column(7, uiOutput("tagMsg")),
@@ -249,7 +291,7 @@ getDatabaseName <- function(prefix="ctd_tag")
 countTags <- function(file, dbname)
 {
     tags <- getTags(file=file, dbname=dbname)
-    sum(tags$file == file & tags$level > 0L)
+    nrow(tags)
 }
 
 server <- function(input, output, session) {
@@ -262,7 +304,7 @@ server <- function(input, output, session) {
     height <- getShinyOption("height", 500)
     tagScheme <- getShinyOption("tagScheme", NULL)
     if (is.null(tagScheme)) {
-        tagLabels <- c("iTop", "iTop?", "iBot", "iBot?", "WS", "WS?", "CF", "CF?")
+        tagLabels <- c("iTop", "iTop?", "iBot", "iBot?", "WS", "WS?", "CF", "CF?", "NOTAGS")
         tagScheme <- data.frame(tagCode=seq_along(labels), tagLabel=tagLabels)
     }
     clickDistanceCriterion <- getShinyOption("clickDistanceCriterion", 0.02)
@@ -335,10 +377,9 @@ server <- function(input, output, session) {
         dmsg("focusIsVisible: focusLevel=", state$focusLevel, "; returning ", state$visible[state$focusLevel], "\n")
         state$visible[state$focusLevel]
     }
-
-    dprint(tagScheme)
+    #dprint(tagScheme)
     createDatabase(dbname=dbname, tagScheme=tagScheme)
-    values <- reactiveValues(brush=NULL)
+    #>><< values <- reactiveValues(brush=NULL)
     # FIXME: possibly add get-new-file mechanism near this spot
     ctd <- oce::read.oce(file)
     data <- list(pressure=ctd@data$pressure, salinity=ctd@data$salinity, temperature=ctd@data$temperature)
@@ -368,10 +409,12 @@ server <- function(input, output, session) {
     focusIsVisible <- function()
         focusIsSet() && state$visible[state$focusLevel]
 
-    observeEvent(input$clear,
+    observeEvent(input$doNotTag,
         {
-            values$brush <- NULL
-            shinyjs::runjs("document.getElementById('plot_brush').remove()")
+            if (countTags(state$file, dbname) == 0L) {
+                dmsg("responding to input$doNotTag\n")
+                dmsg("# tags = ", countTags(state$file, dbname), "\n")
+            }
         })
 
     observeEvent(input$quit,
@@ -501,10 +544,10 @@ server <- function(input, output, session) {
         {
             if (!plotting) {
                 key <- intToUtf8(input$keypress)
-                dmsg("keypress (", key, " being handled since not plotting\n")
+                dmsg("keypress (", key, ") is being handled, since we are not plotting (FIXME: need this?)\n")
                 if (key %in% as.character(tagScheme$tagCode) && focusIsVisible() && !focusIsTagged()) {
                     dmsg("  tagging at level ", state$focusLevel, "\n")
-                    saveTag(file=state$file, level=state$focusLevel, tagCode=as.integer(key),
+                    addTag(file=state$file, level=state$focusLevel, tagCode=as.integer(key),
                         tagScheme=tagScheme, analyst=state$analyst, dbname=dbname)
                     state$step <<- state$step + 1 # other shiny elements notice this
                     state$stepTag <<- state$stepTag + 1 # only 'summary' notices this
@@ -531,6 +574,11 @@ server <- function(input, output, session) {
             state$data$ylabProfile <<- expression(sigma[theta]* " ["* kg/m^3*"]")
         }
     })
+
+    output$notag <- renderUI(
+        {
+            actionButton("doNotTag", "Do Not Tag")
+        })
 
     output$tagMsg <- renderText(
         {
@@ -572,22 +620,33 @@ server <- function(input, output, session) {
         {
             state$stepTag # to cause shiny to update this
             # FIXME: how to render more info, e.g. dbname, present file, etc?
+            dmsg("responding to request for a summary\n")
             con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+            files <- DBI::dbReadTable(con, "files")
             tags <- DBI::dbReadTable(con, "tags")
+            tagScheme <- DBI::dbReadTable(con, "tagScheme")
             DBI::dbDisconnect(con)
-            # Make time readible
-            t <- oce::numberAsPOSIXct(tags$analysisTime)
-            tags$analysisTime <- format(t, "%Y-%m-%d %H:%M:%S UTC")
-            o <- order(tags$analysisTime, decreasing=TRUE)
-            tags <- tags[o, ]
+            #dprint(names(tags))
+            #dprint(names(files))
+            tmp <- merge(merge(tags, files, by="fileId"), tagScheme, by="tagCode")
+            # Remove some things the user does not need to see
+            tmp$fileId <- NULL
+            tmp$tagCode <- NULL
+            tmp$fileHasTags <- NULL
+            o <- order(tmp$analysisTime, decreasing=TRUE)
+            tmp <- tmp[o, ]
+            # reorder and rename for clarity
+            tmp <- data.frame(file=tmp$fileName, level=tmp$level, tag=tmp$tagLabel,
+                analyst=tmp$analyst,
+                analysisTime=format(oce::numberAsPOSIXct(tmp$analysisTime),
+                    "%Y-%m-%d %H:%M:%S UTC"))
             #renderTable(tags)
-            DT::renderDT(tags)
+            DT::renderDT(tmp)
         })
  
     output$plotPanel <- renderUI(
         {
             state$step # cause a shiny update
-            shinyjs::runjs(sprintf("document.getElementById('plot_brush').remove()"))
             plotOutput("plot",
                 brush=brushOpts("brush", delay=2000, resetOnNew=TRUE),
                 dblclick=clickOpts("dblclick"))
