@@ -45,8 +45,8 @@ createDatabase <- function(dbname=getDatabaseName(), tagScheme=NULL)
         o <- DBI::dbReadTable(con, "version")
         versionOld <- as.numeric(sprintf("%d.%02d", o$major, o$minor))
         versionNew <- as.numeric(sprintf("%d.%02d", dbVersion$major, dbVersion$minor))
-        dmsg1(vectorShow(versionOld))
-        dmsg1(vectorShow(versionNew))
+        dmsg1("version in database: ", o$major, ".", o$minor, "\n")
+        dmsg1("most recent version: ", dbVersion$major, ".", dbVersion$minor, "\n")
         if (versionOld < versionNew) {
             msg("Database version (", o$major, ".", o$minor, ") requires updating...\n")
             if (versionOld < 1.01) {
@@ -74,6 +74,8 @@ createDatabase <- function(dbname=getDatabaseName(), tagScheme=NULL)
                 DBI::dbWriteTable(con, "tags", tmp, overwrite=TRUE)
                 msg("    Saved updated `tags` table to database.\n")
                 msg("Database has been updated to version ", dbVersion$major, ".", dbVersion$minor, "\n")
+            } else {
+                stop("unhandled version")
             }
         } else {
             dmsg("database is up-to-date, so does not need alteration\n")
@@ -86,7 +88,7 @@ createDatabase <- function(dbname=getDatabaseName(), tagScheme=NULL)
         con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
         DBI::dbCreateTable(con, "version", c("major"="INTEGER", "minor"="INTEGER"))
         DBI::dbWriteTable(con, "version", data.frame(major=1L, minor=0L), overwrite=TRUE)
-        DBI::dbCreateTable(con, "tagScheme", c("tagCode"="INTEGER", "tagLabel"="TEXT"))
+        DBI::dbCreateTable(con, "tagScheme", c(tagCode="INTEGER", tagLabel="TEXT"))
         DBI::dbWriteTable(con, "tagScheme", tagScheme, overwrite=TRUE)
         DBI::dbCreateTable(con, "files", c(fileId="INTEGER", fileName="TEXT", fileHasTags="INTEGER"))
         DBI::dbCreateTable(con, "tags", c(fileId="INTEGER", level="INTEGER", tagCode="INTEGER",
@@ -145,7 +147,7 @@ addTag <- function(file=NULL, level=NULL, tagCode=NULL, tagScheme=NULL, analyst=
         files <- DBI::dbReadTable(con, "files")
         fileId <- subset(files, fileName==file)$fileId
         # FIXME: tagLabel not needed here
-        df <- data.frame(fileId=fileId, level=level, tagCode=tagCode, tagLabel=tagLabel, analyst=analyst, analysisTime=Sys.time())
+        df <- data.frame(fileId=fileId, level=level, tagCode=tagCode, analyst=analyst, analysisTime=Sys.time())
         DBI::dbAppendTable(con, "tags", df)
         DBI::dbDisconnect(con)
     } else {
@@ -389,7 +391,7 @@ server <- function(input, output, session) {
         dmsg("adding file \"", file, "\" to the database table named `files`\n")
         dmsg("OLD `files` table\n")
         dprint(files)
-        df <- data.frame(fileId=1L+max(files$fileId), fileName=file, fileHasTags=0)
+        df <- data.frame(fileId=1L+max(files$fileId), fileName=file, fileHasTags=-1) # status -1 means not examined
         DBI::dbAppendTable(con, "files", df)
         dmsg("NEW `files` table\n")
         files <- DBI::dbReadTable(con, "files")
@@ -585,16 +587,18 @@ server <- function(input, output, session) {
         }
     })
 
+    # Only show the 'Do Not Tag' button if the profile has zero tags.  That is,
+    # the user is forced to remove tags first.  This avoids contradictions of
+    # thought and action.
     output$notag <- renderUI(
         {
-            actionButton("doNotTag", "Do Not Tag")
+            if (countTags(state$file, dbname) == 0L)
+                actionButton("doNotTag", "Do Not Tag")
         })
 
     output$tagMsg <- renderText(
         {
             state$stepTag # to cause shiny to update this
-            # Only count tags with level 1 and higher, because a tag at level=0
-            # means "nothing to tag".
             tagMsg <- pluralize(countTags(state$file, dbname), "tag")
             #focusMsg <- if (focusIsTagged()) paste0("| focus, at level ", state$focusLevel, ", is tagged") else ""
             #pvisible <- data$pressure[state$visible]
