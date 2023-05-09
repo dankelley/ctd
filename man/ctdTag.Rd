@@ -11,7 +11,7 @@ ctdTag(
   tagScheme = NULL,
   height = 550,
   clickDistanceCriterion = 0.02,
-  debug = 0
+  debug = 0L
 )
 }
 \arguments{

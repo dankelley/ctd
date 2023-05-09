@@ -10,6 +10,10 @@ options(oceEOS="unesco") # avoid the hassle of supporting two EOSs
 debug <- 1
 t0 <- as.numeric(Sys.time()) # used by msg() et al.
 
+# Pin a number between limits
+pin <- function(x, low, high)
+    max(min(x, high), low)
+
 pluralize <- function(n=1, singular="item", plural=NULL)
 {
     singular <- paste(n, singular)
@@ -244,8 +248,8 @@ ui <- fluidPage(
             style="background:#e6f3ff;cursor:crosshair;col=blue;",
             column(1, actionButton("quit", "Quit")),
             column(2, selectInput("debug", label=NULL,
-                    choices=c("debug=0"=0, "debug=1"=1, "debug=2"=2),
-                    selected=getShinyOption("debug"))),
+                    choices=c("debug=0"=0L, "debug=1"=1L, "debug=2"=2L),
+                    selected=debug)),
             column(2, selectInput("view", label=NULL,
                     choices=c("S prof."="S profile",
                         "T prof."="T profile",
@@ -311,11 +315,12 @@ server <- function(input, output, session) {
     }
     clickDistanceCriterion <- getShinyOption("clickDistanceCriterion", 0.02)
     brushCriterion <- 0.1 # a brush must cover this fraction of plot area
-    debug <<- getShinyOption("debug", 0)
+    debug <<- pin(as.integer(getShinyOption("debug", 0L)), 0L, 2L)
+    updateSelectInput(session, "debug", selected=debug)
+    msg("in app, location 4, debug=", debug, "\n")
     # }
     overallHelp <- function() {
-        # FIXME: tailor help to state, e.g. if no focus, the only thing
-        # they can do is to focus, or to zoom/pan.
+        # tailor help message to the current state (e.g. is there a focus level?)
         helpMouse <- "<p><i>Mouse</i></p>
         <ul>
         <li>Click near the data to choose a focus point, which permits tagging. Note
@@ -418,6 +423,17 @@ server <- function(input, output, session) {
         visible=rep(TRUE, length(data$pressure)) # all points visible at the start
         )
 
+    canTag <- function()
+    {
+        con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+        files <- DBI::dbReadTable(con, "files")
+        DBI::dbDisconnect(con)
+        w <- which(files$fileName == state$file)
+        dmsg(vectorShow(w))
+        dmsg(vectorShow(files[w,"fileHasTags"]))
+        if (length(w) == 1L) (files[w, "fileHasTags"] != 0L) else TRUE
+    }
+
     focusIsSet <- function()
         !is.null(state$focusLevel)
 
@@ -432,6 +448,20 @@ server <- function(input, output, session) {
             if (countTags(state$file, dbname) == 0L) {
                 dmsg("responding to input$doNotTag\n")
                 dmsg("# tags = ", countTags(state$file, dbname), "\n")
+                con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+                files <- DBI::dbReadTable(con, "files")
+                w <- which(files$fileName == file)
+                dmsg1(vectorShow(w))
+                if (length(w) == 0L) {
+                    stop("file \"", file, "\" is not present in `files` table")
+                } else if (length(w) > 1L) {
+                    stop("file \"", file, "\" is found more than once in `files` table")
+                } else {
+                    dmsg("changing status\n")
+                    files[w, "fileHasTags"] <- 0L
+                    DBI::dbWriteTable(con, "files", files, overwrite=TRUE)
+                }
+                DBI::dbDisconnect(con)
             }
         })
 
@@ -592,6 +622,7 @@ server <- function(input, output, session) {
     # thought and action.
     output$notag <- renderUI(
         {
+            dmsg(vectorShow(canTag()))
             if (countTags(state$file, dbname) == 0L)
                 actionButton("doNotTag", "Do Not Tag")
         })

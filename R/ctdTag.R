@@ -62,7 +62,8 @@
 #' @author Dan Kelley
 #'
 #' @export
-ctdTag <- function(file, dir, dbname=getDatabaseName("ctdTag"), tagScheme=NULL, height=550, clickDistanceCriterion=0.02, debug=0)
+ctdTag <- function(file, dir, dbname=getDatabaseName("ctdTag"),
+    tagScheme=NULL, height=550, clickDistanceCriterion=0.02, debug=0L)
 {
     if (missing(file) && missing(dir))
         stop("must give 'file' or 'dir'")
