@@ -380,13 +380,9 @@ server <- function(input, output, session) {
         dmsg("focusIsVisible: focusLevel=", state$focusLevel, "; returning ", state$visible[state$focusLevel], "\n")
         state$visible[state$focusLevel]
     }
-    #dprint(tagScheme)
     # create a new database or open an existing one
     createDatabase(dbname=dbname, tagScheme=tagScheme) # or re-use existing one
-    # Add to the list of files, unless we have processed this file before
-
-    # FIXME: possibly add get-new-file mechanism near this spot
-    ctd <- oce::read.oce(file)
+    # Add this file to the `files` table, if it's not there already.
     con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
     files <- DBI::dbReadTable(con, "files")
     if (!(file %in% files$fileName)) {
@@ -400,6 +396,8 @@ server <- function(input, output, session) {
         dprint(files)
     }
     DBI::dbDisconnect(con)
+    # Read the file.  (FIXME: add get-new-file mechanism somewhere above this spot)
+    ctd <- oce::read.oce(file)
     data <- list(pressure=ctd@data$pressure, salinity=ctd@data$salinity, temperature=ctd@data$temperature)
     data$theta <- oce::swTheta(ctd)
     data$yProfile <- data$pressure
