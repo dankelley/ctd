@@ -381,10 +381,25 @@ server <- function(input, output, session) {
         state$visible[state$focusLevel]
     }
     #dprint(tagScheme)
-    createDatabase(dbname=dbname, tagScheme=tagScheme)
-    #>><< values <- reactiveValues(brush=NULL)
+    # create a new database or open an existing one
+    createDatabase(dbname=dbname, tagScheme=tagScheme) # or re-use existing one
+    # Add to the list of files, unless we have processed this file before
+
     # FIXME: possibly add get-new-file mechanism near this spot
     ctd <- oce::read.oce(file)
+    con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+    files <- DBI::dbReadTable(con, "files")
+    if (!(file %in% files$fileName)) {
+        dmsg("adding file \"", file, "\" to the database table named `files`\n")
+        dmsg("OLD `files` table\n")
+        dprint(files)
+        df <- data.frame(fileId=1L+max(files$fileId), fileName=file, fileHasTags=0)
+        DBI::dbAppendTable(con, "files", df)
+        dmsg("NEW `files` table\n")
+        files <- DBI::dbReadTable(con, "files")
+        dprint(files)
+    }
+    DBI::dbDisconnect(con)
     data <- list(pressure=ctd@data$pressure, salinity=ctd@data$salinity, temperature=ctd@data$temperature)
     data$theta <- oce::swTheta(ctd)
     data$yProfile <- data$pressure
