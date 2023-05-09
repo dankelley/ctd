@@ -235,12 +235,12 @@ ui <- fluidPage(
     tags$script('$(document).on("keypress", function (e) { Shiny.onInputChange("keypress", e.which); Shiny.onInputChange("keypressTrigger", Math.random()); });'),
     tabsetPanel(type="tabs", id="tabselected",
         tabPanel("Analysis", value=1),
-        tabPanel("Summary", value=2)),
+        tabPanel("Summary", value=2),
+        tabPanel("Help", value=3)),
     conditionalPanel("input.tabselected==1",
         fluidRow(
             style="background:#e6f3ff;cursor:crosshair;col=blue;",
             column(1, actionButton("quit", "Quit")),
-            column(1, actionButton("help", "Help")),
             column(2, selectInput("debug", label=NULL,
                     choices=c("debug=0"=0, "debug=1"=1, "debug=2"=2),
                     selected=getShinyOption("debug"))),
@@ -272,8 +272,8 @@ ui <- fluidPage(
             column(12, uiOutput("tagHint"))),
         fluidRow(
             uiOutput("plotPanel"))),
-    conditionalPanel("input.tabselected == 2",
-        fluidRow(uiOutput("summary"))))
+    conditionalPanel("input.tabselected == 2", fluidRow(uiOutput("summary"))),
+    conditionalPanel("input.tabselected == 3", fluidRow(uiOutput("help"))))
 
 getUserName <- function()
 {
@@ -333,11 +333,12 @@ server <- function(input, output, session) {
             <li>Click near data to focus on a level.</li>
             <li>Brush to zoom in to a specific region.</li>
             </ul>
-            <p><i>Possible button actions</i></p>
+            <p><i>Controlling the view</i></p>
             <ul>
-            <li>Pulldown menus alter the view.</li>
+            <li>Pulldown menus control the plot type.</li>
             <li>The up/down arrow buttons pan up and down (in pressure).</li>
-            <li>The '-' and '+' buttons zoom in and out with respect to the present centre.</li>
+            <li>The `-` button zooms out a little.</li>
+            <li>The `1:1` button zooms out to a full-scale view.</li>
             </ul>"
         } else {
             if (focusIsTagged()) {
@@ -349,26 +350,28 @@ server <- function(input, output, session) {
                 <ul>
                 <li>Type 'x' to remove the tag at the focus point.</li>
                 </ul>
-                <p><i>Possible button actions</i></p>
+                <p><i>Controlling the view</i></p>
                 <ul>
-                <li>Pulldown menus alter the view.</li>
+                <li>Pulldown menus control the plot type.</li>
                 <li>The up/down arrow buttons pan up and down (in pressure).</li>
-                <li>The '-' and '+' buttons zoom in and out with respect to the present centre.</li>
+                <li>The `-` button zooms out a little.</li>
+                <li>The `1:1` button zooms out to a full-scale view.</li>
                 </ul>"
             } else {
                 "<p><i>Possible pointer actions</i></p>
                 <ul>
-                <li>Click far from data, zoom, or pan to unselect focus point.</li>
+                <li>Click far from data to unselect the focus point.</li>
                 </ul>
                 <p><i>Possible keyboard actions</i></p>
                 <ul>
                 <li>Type a digit to tag the focus point. (The red text lists possible digits.)</li>
                 </ul>
-                <p><i>Possible button actions</i></p>
+                <p><i>Controlling the view</i></p>
                 <ul>
-                <li>Pulldown menus alter the view.</li>
+                <li>Pulldown menus control the plot type.</li>
                 <li>The up/down arrow buttons pan up and down (in pressure).</li>
-                <li>The '-' and '+' buttons zoom in and out with respect to the present centre.</li>
+                <li>The `-` button zooms out a little.</li>
+                <li>The `1:1` button zooms out to a full-scale view.</li>
                 </ul>"
             }
         }
@@ -420,12 +423,6 @@ server <- function(input, output, session) {
     observeEvent(input$quit,
         {
             stopApp()
-        })
-
-    observeEvent(input$help,
-        {
-            showModal(modalDialog(title=NULL,
-                    size="xl", HTML(overallHelp()), easyClose=TRUE))
         })
 
     observeEvent(input$debug,
@@ -642,6 +639,11 @@ server <- function(input, output, session) {
                     "%Y-%m-%d %H:%M:%S UTC"))
             #renderTable(tags)
             DT::renderDT(tmp)
+        })
+
+    output$help <- renderUI(
+        {
+            HTML(overallHelp())
         })
  
     output$plotPanel <- renderUI(
