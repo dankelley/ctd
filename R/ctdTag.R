@@ -40,6 +40,8 @@
 #' library(ctd)
 #' file <- "~/data/arctic/beaufort/2012/d201211_0047.cnv"
 #' ctdTag(file=file)
+#' dir <- "~/data/arctic/beaufort/2012"
+#' ctdTag(dir=dir)
 #'}
 #'
 # NOTE: we are using these (mostly with package:: syntax) in
@@ -57,7 +59,9 @@
 #'
 #' @importFrom shiny runApp shinyOptions
 #'
-#' @importFrom shinyjs runjs useShinyjs
+#' @importFrom shinyBS bsTooltip
+#'
+## @importFrom shinyjs runjs useShinyjs
 #'
 #' @author Dan Kelley
 #'
@@ -66,26 +70,22 @@ ctdTag <- function(file, dir, dbname=getDatabaseName("ctdTag"),
     tagScheme=NULL, height=550, clickDistanceCriterion=0.02, debug=0L)
 {
     if (missing(file) && missing(dir))
-        stop("must give 'file' or 'dir'")
+        stop("Must specify 'file' or 'dir'")
     if (!missing(file) && !missing(dir))
-        stop("do not give both 'file' and 'dir'")
-    if (!missing(dir)) {
-        # FIXME(CFR): make this work
-        print(list.files(dir, pattern="cnv", full.names=TRUE))
-        stop("FIXME: code more here")
-    }
+        warning("LATER ... Cannot specify both 'file' and 'dir'")
     if (is.null(tagScheme)) {
         labels <- c("iTop", "iTop?", "iBot", "iBot?", "WS", "WS?", "CF", "CF?")
         tagScheme <- data.frame(tagCode=seq_along(labels), tagLabel=labels)
     }
-    shinyOptions(file=file,
+    shinyOptions(file=if (missing(file)) NULL else file,
+        dir=if (missing(dir)) NULL else dir,
         height=height,
         tagScheme=tagScheme,
         clickDistanceCriterion=clickDistanceCriterion,
         dbname=dbname,
         debug=debug)
-    dir <- system.file("shiny", "ctdTag/app.R", package="ctd")
-    if (!nchar(dir))
+    appdir <- system.file("shiny", "ctdTag/app.R", package="ctd")
+    if (!nchar(appdir))
         stop("The app could not be located.", call.=FALSE)
-    runApp(dir, display.mode="normal")
+    runApp(appdir, display.mode="normal")
 }

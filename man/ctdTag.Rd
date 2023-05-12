@@ -59,6 +59,8 @@ Tag CTD features
 library(ctd)
 file <- "~/data/arctic/beaufort/2012/d201211_0047.cnv"
 ctdTag(file=file)
+dir <- "~/data/arctic/beaufort/2012"
+ctdTag(dir=dir)
 }
 
 
