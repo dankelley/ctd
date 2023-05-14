@@ -6,16 +6,22 @@
 \usage{
 ctdTag(
   file,
-  dbname = NULL,
+  dir,
+  dbname = getDatabaseName("ctdTag"),
   tagScheme = NULL,
   height = 550,
   clickDistanceCriterion = 0.02,
-  debug = 0
+  debug = 0L
 )
 }
 \arguments{
-\item{file}{character value specifying the name of a file containing CTD data,
-which must be in a format handled by \code{\link[oce:read.oce]{oce::read.oce()}}.}
+\item{file}{character value specifying the name of a file containing CTD data.
+This file must be in a format that is handled by \code{\link[oce:read.oce]{oce::read.oce()}}.  You may
+not supply \code{dir} if \code{file} is supplied.}
+
+\item{dir}{character value specifying the name of a directory containing
+files that hold CTD data. You may not supply \code{file} if \code{dir} is supplied.
+NOTE: the \code{dir} parameter is not actually handled yet (FIXME).}
 
 \item{dbname}{optional character value specifying the name of a sqlite
 database used to hold tagging information.  If not provided, a file name
@@ -53,7 +59,10 @@ Tag CTD features
 library(ctd)
 file <- "~/data/arctic/beaufort/2012/d201211_0047.cnv"
 ctdTag(file=file)
+dir <- "~/data/arctic/beaufort/2012"
+ctdTag(dir=dir)
 }
+
 
 }
 \author{

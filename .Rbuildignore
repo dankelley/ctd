@@ -4,4 +4,6 @@
 ^R/.lintr$
 ^LICENSE$
 ^.*\.db$
+sandbox
+docs
 

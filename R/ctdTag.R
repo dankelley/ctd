@@ -1,7 +1,12 @@
 #' Tag CTD features
 #'
-#' @param file character value specifying the name of a file containing CTD data,
-#' which must be in a format handled by [oce::read.oce()].
+#' @param file character value specifying the name of a file containing CTD data.
+#' This file must be in a format that is handled by [oce::read.oce()].  You may
+#' not supply `dir` if `file` is supplied.
+#'
+#' @param dir character value specifying the name of a directory containing
+#' files that hold CTD data. You may not supply `file` if `dir` is supplied.
+#' NOTE: the `dir` parameter is not actually handled yet (FIXME).
 #'
 #' @param dbname optional character value specifying the name of a sqlite
 #' database used to hold tagging information.  If not provided, a file name
@@ -35,34 +40,52 @@
 #' library(ctd)
 #' file <- "~/data/arctic/beaufort/2012/d201211_0047.cnv"
 #' ctdTag(file=file)
+#' dir <- "~/data/arctic/beaufort/2012"
+#' ctdTag(dir=dir)
 #'}
 #'
-#' @importFrom shiny runApp shinyOptions
-#' @importFrom oce numberAsPOSIXct read.oce
+# NOTE: we are using these (mostly with package:: syntax) in
+# inst/shiny/ctdTag/app.R and not in R/*R so there is really no benefit in
+# naming all the functions.  Just having a single function seems to be enough
+# to make R-check be happy.
+#'
 #' @importFrom DBI dbClearResult dbConnect dbCreateTable dbFetch dbListTables dbReadTable dbSendQuery dbWriteTable
-#' @importFrom RSQLite SQLite
+#'
+#' @importFrom DT renderDT
+#'
+#' @importFrom oce numberAsPOSIXct read.oce resizableLabel swSigmaTheta swTheta
+#'
+#' @importFrom RSQLite dbAppendTable dbConnect dbDisconnect dbReadTable dbWriteTable SQLite
+#'
+#' @importFrom shiny runApp shinyOptions
+#'
+#' @importFrom shinyBS bsTooltip
+#'
+## @importFrom shinyjs runjs useShinyjs
 #'
 #' @author Dan Kelley
 #'
 #' @export
-ctdTag <- function(file, dbname=NULL, tagScheme=NULL, height=550, clickDistanceCriterion=0.02, debug=0)
+ctdTag <- function(file, dir, dbname=getDatabaseName("ctdTag"),
+    tagScheme=NULL, height=550, clickDistanceCriterion=0.02, debug=0L)
 {
-    if (missing(file))
-        stop("must give 'file'")
-    if (is.null(dbname))
-        dbname <- getDatabaseName("ctdTag")
+    if (missing(file) && missing(dir))
+        stop("Must specify 'file' or 'dir'")
+    if (!missing(file) && !missing(dir))
+        warning("LATER ... Cannot specify both 'file' and 'dir'")
     if (is.null(tagScheme)) {
         labels <- c("iTop", "iTop?", "iBot", "iBot?", "WS", "WS?", "CF", "CF?")
         tagScheme <- data.frame(tagCode=seq_along(labels), tagLabel=labels)
     }
-    dir <- system.file("shiny", "ctdTag/app.R", package="ctd")
-    if (!nchar(dir))
-        stop("The app could not be located.", call.=FALSE)
-    shinyOptions(file=file,
+    shinyOptions(file=if (missing(file)) NULL else file,
+        dir=if (missing(dir)) NULL else dir,
         height=height,
         tagScheme=tagScheme,
         clickDistanceCriterion=clickDistanceCriterion,
         dbname=dbname,
         debug=debug)
-    runApp(dir, display.mode="normal")
+    appdir <- system.file("shiny", "ctdTag/app.R", package="ctd")
+    if (!nchar(appdir))
+        stop("The app could not be located.", call.=FALSE)
+    runApp(appdir, display.mode="normal")
 }

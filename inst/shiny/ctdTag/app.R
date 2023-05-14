@@ -1,18 +1,39 @@
 # vim:textwidth=80:expandtab:shiftwidth=4:softtabstop=4
 
+library(shiny)
+library(shinyBS)
+
+# Set version to be stored in the database.  If the database is older than
+# this, then conversion is done first, with messages being printed even
+# if debug==0.
+dbVersion <- data.frame(major=1L, minor=4L) # 'minor' may not exceed 100
+
 library(oce)
 options(oceEOS="unesco") # avoid the hassle of supporting two EOSs
 debug <- 1
+t0 <- as.numeric(Sys.time()) # used by msg() et al.
 
-#' @importFrom shinyjs runjs
+# Utility functions
 
-#library(shiny)
-#?library(shinyBS)
-#?requireNamespace(shinyjs)
-#?library(shinycssloaders)
-#library(oce)
-#?requireNamespace(DBI)
-#?requireNamespace(RSQLite)
+# Get a table from an SQLite database
+getTableFromDatabase <- function(tableName, dbName)
+{
+    con <- DBI::dbConnect(RSQLite::SQLite(), dbName)
+    rval <- DBI::dbReadTable(con, tableName)
+    DBI::dbDisconnect(con)
+    rval
+}
+
+# Convert filename to tilde notation.  Both macOS and linux
+# notations are handled, e.g. the following both yield ~/A.
+#     /Users/username/A
+#     /home/username/A
+tildeName <- function(filename)
+    gsub("^/(home|Users)/[^/]+", "~", filename)
+
+# Pin a number between limits
+pin <- function(x, low, high)
+    max(min(x, high), low)
 
 pluralize <- function(n=1, singular="item", plural=NULL)
 {
@@ -22,119 +43,221 @@ pluralize <- function(n=1, singular="item", plural=NULL)
     if (n == 1L) singular else plural
 }
 
-msg <- function(...)
-    cat(file=stderr(), ..., sep="")
-
+# Messages to R console (stderr() file)
+dt <- function(t, t0)
+    sprintf("%7.4f: ", t - t0)
+msg <- function(...) {
+    t <- as.numeric(Sys.time())
+    cat(file=stderr(), dt(t, t0), ..., sep="")
+    t0 <<- t
+}
 dmsg <- function(...)
-    if (debug > 0) cat(file=stderr(), ..., sep="")
-
+    if (debug > 0) msg(...)
 dmsg1 <- function(...)
-    if (debug > 1) cat(file=stderr(), ..., sep="")
-
+    if (debug > 1) msg(...)
 dmsg2 <- function(...)
-    if (debug > 2) cat(file=stderr(), ..., sep="")
-
+    if (debug > 2) msg(...)
 dprint <- function(...)
     if (debug > 0) print(file=stderr(), ...)
 
+# Create a database, or reuse an existing one. In the latter case, update as
+# appropriate (not done yet, since still at initial version).
 createDatabase <- function(dbname=getDatabaseName(), tagScheme=NULL)
 {
     if (file.exists(dbname)) {
-        dmsg("createDatabase(): using existing database \"", dbname, "\"\n")
+        dmsg("using existing database \"", dbname, "\"\n")
+        con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+        o <- DBI::dbReadTable(con, "version")
+        versionOld <- as.numeric(sprintf("%d.%02d", o$major, o$minor))
+        versionNew <- as.numeric(sprintf("%d.%02d", dbVersion$major, dbVersion$minor))
+        #dmsg1("version in database: ", o$major, ".", o$minor, "\n")
+        #dmsg1("most recent version: ", dbVersion$major, ".", dbVersion$minor, "\n")
+        if (versionOld < versionNew) {
+            msg("Database version (", o$major, ".", o$minor, ") requires updating...\n")
+            if (versionOld < 1.01) { # old=1.0
+                msg("  Updating database to version 1.1\n")
+                msg("    Create and populate `files` table...\n")
+                tags <- DBI::dbReadTable(con, "tags")
+                msg("      Acquired content of `tags` table\n")
+                filenames <- tildeName(sort(unique(tags$file)))
+                #msg(vectorShow(filenames))
+                nfilenames <- length(filenames)
+                #dprint(filenames)
+                # NOTE: 'fileHasTags' will get renamed in the next block.
+                DBI::dbCreateTable(con, "files", c(fileId="INTEGER", fileName="TEXT", fileHasTags="INTEGER"))
+                files <- data.frame(fileId=seq_len(nfilenames), fileName=filenames, fileHasTags=rep(1L, nfilenames))
+                DBI::dbWriteTable(con, "files", files, overwrite=TRUE)
+                #msg("DAN 1\n");print(files,file=stderr())
+                msg("      Filled `files` table with ", nfilenames, " entries\n")
+                msg("      Saved `files` table in database\n")
+                #msg("DEBUG: next is files table (does it have /Users)\n")
+                #print(files, file=stderr())
+                msg("    Update `tags` table...\n")
+                tmp <- merge(files, tags, by.x="fileName", by.y="file")
+                msg("      Updated `tags` table by merging with `files` table\n")
+                tmp$fileName <- NULL
+                tmp$fileHasTags <- NULL
+                tmp$tagLabel <- NULL
+                msg("      Removed redundant columns in `tags` table\n")
+                DBI::dbWriteTable(con, "tags", tmp, overwrite=TRUE)
+                msg("      Saved `tags` table in database\n")
+            }
+            if (versionOld < 1.02) { # rename files$fileHasTags as files$tagStatus
+                msg("  Updating database to version 1.2\n")
+                files <- DBI::dbReadTable(con, "files")
+                names(files) <- gsub("fileHasTags", "tagStatus", names(files))
+                DBI::dbWriteTable(con, "files", files, overwrite=TRUE)
+                #msg("DAN 2\n");print(files,file=stderr())
+                msg("    Renamed `files$fileHasTags` to `files$tagStatus`\n")
+            }
+            if (versionOld < 1.03) { # change files$fileName to ~ notation
+                msg("  Updating database to version 1.3\n")
+                files <- DBI::dbReadTable(con, "files")
+                tags <- DBI::dbReadTable(con, "tags")
+                files$fileName <- tildeName(files$fileName)
+                #print(data.frame(new=DAN, old=files$fileName))
+                DBI::dbWriteTable(con, "files", files, overwrite=TRUE)
+                #msg("DAN 3\n");print(files,file=stderr())
+                #msg("next is files after updating to 1.3\n")
+                #print(files, file=stderr())
+                msg("    Renamed `fileName` entries in `files` table from /Users/x/y to ~/y\n")
+            }
+            if (versionOld < 1.04) { # drop files$tagStatus
+                msg("  Updating database to version 1.4\n")
+                files <- DBI::dbReadTable(con, "files")
+                files$tagStatus <- NULL
+                DBI::dbWriteTable(con, "files", files, overwrite=TRUE)
+                #msg("DAN 4\n");print(files,file=stderr())
+                #msg("next is files after updating to 1.4\n")
+                #print(files, file=stderr())
+                msg("    Removed `tagStatus` from `files` table\n")
+            }
+             DBI::dbWriteTable(con, "version", dbVersion, overwrite=TRUE)
+            msg("Finished updating database\n")
+        } else {
+            dmsg("The database format is up-to-date\n")
+        }
+        DBI::dbDisconnect(con)
     } else {
-        dmsg("createDatabase(): creating database \"", dbname, "\"\n")
-        stop("Must provide tagScheme")
-        con <- dbConnect(RSQLite::SQLite(), dbname)
-        dbCreateTable(con, "version", c("major"="INTEGER", "minor"="INTEGER"))
-        dbWriteTable(con, "version", data.frame(major=1L, minor=0L), overwrite=TRUE)
-        dbCreateTable(con, "tagScheme", c("tagCode"="INTEGER", "tagLabel"="TEXT"))
-        dbWriteTable(con, "tagScheme", tagScheme, overwrite=TRUE)
-        dbCreateTable(con, "tags", c("file"="TEXT", level="INT", tagCode="INT", tagLabel="TEXT",
+        dmsg("creating database \"", dbname, "\"\n")
+        if (is.null(tagScheme))
+            stop("Must provide tagScheme")
+        con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+        DBI::dbCreateTable(con, "version", c("major"="INTEGER", "minor"="INTEGER"))
+        DBI::dbWriteTable(con, "version", data.frame(major=1L, minor=0L), overwrite=TRUE)
+        DBI::dbCreateTable(con, "tagScheme", c(tagCode="INTEGER", tagLabel="TEXT"))
+        DBI::dbWriteTable(con, "tagScheme", tagScheme, overwrite=TRUE)
+        DBI::dbCreateTable(con, "files", c(fileId="INTEGER", fileName="TEXT"))
+        DBI::dbCreateTable(con, "tags", c(fileId="INTEGER", level="INTEGER", tagCode="INTEGER",
                 analyst="TEXT", analysisTime="TIMESTAMP"))
-        dbDisconnect(con)
+        DBI::dbDisconnect(con)
     }
 }
 
+getFiles <- function(dbname=NULL)
+{
+    dmsg1("getFiles(dbname=\"", dbname, "\", ...)\n")
+    con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+    files <- DBI::dbReadTable(con, "files")
+    DBI::dbDisconnect(con)
+    files
+}
+
+# Get tags for a particular file.
 getTags <- function(file=NULL, dbname=NULL)
 {
-    tags <- NULL
-    #dmsg("getTags(file=\"", file, "\", dbname=\"", dbname, "\"\n")
+    rval <- NULL
+    dmsg1("getTags(file=\"", file, "\", ...)\n")
     if (file.exists(dbname)) {
-        con <- dbConnect(SQLite(), dbname)
-        if (dbExistsTable(con, "tags")) {
-            tags <- dbReadTable(con, "tags")
-            dbDisconnect(con)
-            if (!is.null(file)) {
-                tags <- tags[tags$file == file, ]
-            }
-        }
+        con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+        files <- DBI::dbReadTable(con, "files")
+        tags <- DBI::dbReadTable(con, "tags")
+        tagScheme <- DBI::dbReadTable(con, "tagScheme")
+        DBI::dbDisconnect(con)
+        rval <- subset(tags, fileId==subset(files, fileName==file)$fileId)
+        rval <- merge(rval, tagScheme, by="tagCode")
     }
-    #dmsg(vectorShow(tags))
-    tags
+    dmsg1("  returning ", nrow(rval), " tags\n")
+    rval
 }
 
+# Remove a tag at a given level of a given file
 removeTag <- function(file=NULL, level=NULL, dbname=NULL)
 {
-    dmsg("removeTag(file=\"", file, "\", level=", level, ", dbname=\"", dbname, "\") {\n")
-    con <- dbConnect(RSQLite::SQLite(), dbname)
-    tags <- RSQLite::dbReadTable(con, "tags")
-    remove <- which(tags$file == file & tags$level == level)
+    dmsg("removeTag() at level ", level, "\n")
+    con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+    tags <- DBI::dbReadTable(con, "tags")
+    files <- DBI::dbReadTable(con, "files")
+    tags <- subset(tags, fileId==subset(files, fileName==file)$fileId)
+    remove <- which(tags$level == level)
     if (length(remove)) {
-        dmsg("    removing ", paste(remove, collapse=" "), "-th tag\n")
+        dmsg1("    removing ", paste(remove, collapse=" "), "-th tag\n")
         tags <- tags[-remove, ]
-        RSQLite::dbWriteTable(con, "tags", tags, overwrite=TRUE)
+        DBI::dbWriteTable(con, "tags", tags, overwrite=TRUE)
     } else {
-        dmsg("    nothing to remove\n")
+        dmsg1("    nothing to remove\n")
     }
-    RSQLite::dbDisconnect(con)
-    dmsg("} removeTag()\n")
+    DBI::dbDisconnect(con)
 }
 
-saveTag <- function(file=NULL, level=NULL, tagCode=NULL, tagScheme=NULL, analyst=NULL, dbname=NULL)
+# Save a tag.
+addTag <- function(file=NULL, level=NULL, tagCode=NULL, tagScheme=NULL, analyst=NULL, dbname=NULL)
 {
     tagLabel <- tagScheme[which(tagCode==tagScheme$tagCode), "tagLabel"]
-    dmsg("saveTag(file=", file, ", level=", level, ", tagCode=", tagCode, ", tagLabel=", tagLabel, ", analyst=", analyst, ", dbname=", dbname, ")\n")
-    # no checking on NULL; add that if we want to generalize
-    dmsg(vectorShow(tagLabel))
-    df <- data.frame(file=file, level=level, tagCode=tagCode, tagLabel=tagLabel, analyst=analyst, analysisTime=Sys.time())
-    con <- dbConnect(RSQLite::SQLite(), dbname)
-    RSQLite::dbAppendTable(con, "tags", df)
-    RSQLite::dbDisconnect(con)
+    if (identical(length(tagLabel), 1L)) {
+        #dmsg("addTag(file=", file, ", level=", level, ", tagCode=", tagCode, ", tagLabel=", tagLabel, ", analyst=", analyst, ", dbname=", dbname, ")\n")
+        dmsg("saving tag ", tagCode, " at level ", level, "\n")
+        # FIXME: have to look up file etc (see getTags() ...)
+        con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+        tags <- DBI::dbReadTable(con, "tags")
+        files <- DBI::dbReadTable(con, "files")
+        fileId <- subset(files, fileName==file)$fileId
+        # FIXME: tagLabel not needed here
+        df <- data.frame(fileId=fileId, level=level, tagCode=tagCode, analyst=analyst, analysisTime=Sys.time())
+        DBI::dbAppendTable(con, "tags", df)
+        DBI::dbDisconnect(con)
+    } else {
+        showNotification(paste("tag", tagCode, "not understood"))
+    }
 }
 
-findNearestLevel <- function(x, y, usr, data, view)
+# Find data level (index in e.g. state$data$pressure) closest to a given (x,y),
+# typically as set by a mouse click.
+findNearestLevel <- function(dblclick, data, view)
 {
-    dmsg("findNearestLevel(x=", x, ", y=", y, ", ..., view=", view, ")\n")
-    #dmsg("  ", vectorShow(usr))
-    dx2 <- (usr[2] - usr[1])^2
-    dy2 <- (usr[4] - usr[3])^2
-    dmsg2("  ", vectorShow(dx2))
-    dmsg2("  ", vectorShow(dy2))
+    dmsg("findNearestLevel() ...\n")
+    dx2 <- with(dblclick$domain, right - left)^2
+    dy2 <- with(dblclick$domain, top - bottom)^2
+    dmsg1("  ", oce::vectorShow(dx2))
+    dmsg1("  ", oce::vectorShow(dy2))
+    x <- dblclick$x
+    y <- dblclick$y
     if (view == "T profile") {
         d2 <- (x - data$theta)^2/dx2 + (y - data$yProfile)^2/dy2
         nearest <- which.min(d2)
-        dmsg1(sprintf("  T=%.3f, y=%.3f -> index=%d (where y=%.1f)\n", x, y, nearest, data$yProfile[nearest]))
+        dmsg2(sprintf("  T=%.3f, y=%.3f -> index=%d (where y=%.1f)\n", x, y, nearest, data$yProfile[nearest]))
     } else if (view == "S profile") {
         d2 <- (x - data$salinity)^2/dx2 + (y - data$yProfile)^2/dy2
         nearest <- which.min(d2)
-        dmsg1(sprintf("  S=%.3f, y=%.3f -> index=%d (where y=%.1f)\n", x, y, nearest, data$yProfile[nearest]))
+        dmsg2(sprintf("  S=%.3f, y=%.3f -> index=%d (where y=%.1f)\n", x, y, nearest, data$yProfile[nearest]))
     } else if (view == "sigmaTheta profile") {
         d2 <- (x - data$sigmaTheta)^2/dx2 + (y - data$yProfile)^2/dy2
         nearest <- which.min(d2)
-        dmsg1(sprintf("  sigmaTheta=%.3f, y=%.3f -> index=%d (where y=%.1f)\n", x, y, nearest, data$yProfile[nearest]))
+        dmsg2(sprintf("  sigmaTheta=%.3f, y=%.3f -> index=%d (where y=%.1f)\n", x, y, nearest, data$yProfile[nearest]))
      } else if (view == "TS") {
         d2 <- (x - data$salinity)^2/dx2 + (y - data$theta)^2/dy2
         nearest <- which.min(d2)
-        dmsg1(sprintf("  S=%.3f, theta=%.3f -> index=%d (where S=%.1f theta=%.1f)\n",
+        dmsg2(sprintf("  S=%.3f, theta=%.3f -> index=%d (where S=%.1f theta=%.1f)\n",
                 x, y, nearest, data$salinity[nearest], data$theta[nearest]))
     } else {
         stop("view=\"", view, "\" is not handled yet")
     }
     relativeDistance <- sqrt(d2[nearest])
-    dmsg(sprintf("  returning nearest=%d, relativeDistance=%.4f\n", nearest, relativeDistance))
+    dmsg(sprintf("  mouse nearest level %d, %.3f%% from data\n", nearest, 100*relativeDistance))
     list(nearest=nearest, relativeDistance=relativeDistance)
 }
 
+# Trim an index limit to be valid for a vector of length ndata.
 limitsTrim <- function(limits, ndata)
 {
     limits <- as.integer(limits)
@@ -147,8 +270,6 @@ limitsTrim <- function(limits, ndata)
 # on the two indices stored in 'limits'.
 limitsToVisible <- function(limits, ndata)
 {
-    #limits[1] <- max(1L, as.integer(limits[1]))
-    #limits[2] <- min(ndata, as.integer(limits[2]))
     visible <- rep(FALSE, ndata)
     visible[seq(limits[1], limits[2])] <- TRUE
     visible
@@ -179,47 +300,77 @@ default <- list(
     tag=list(cex=2, lwd=2, pch=1, col=2))
 
 ui <- fluidPage(
-    shinyjs::useShinyjs(),
+    #shinyjs::useShinyjs(),
     style="margin-bottom:1px; margin-top:0px; color:red; padding-top:0px; padding-bottom:0px;",
     tags$script('$(document).on("keypress", function (e) { Shiny.onInputChange("keypress", e.which); Shiny.onInputChange("keypressTrigger", Math.random()); });'),
-    tabsetPanel(type="tabs", id="tabselected",
-        tabPanel("Analysis", value=1),
-        tabPanel("Summary", value=2)),
+    tabsetPanel(type="tabs", id="tabselected", selected=1,
+        tabPanel("File", value=1),
+        tabPanel("Analysis", value=2),
+        tabPanel("Summary", value=3),
+        tabPanel("Help", value=4)),
     conditionalPanel("input.tabselected==1",
+        fluidRow(style="background:#e6f3ff;cursor:crosshair;col=blue;",
+            column(6, uiOutput("fileSelectFocus"))),
+        fluidRow(style="background:#e6f3ff;cursor:crosshair;col=blue;",
+            column(6, uiOutput("fileSelect"))),
+        fluidRow(column(1, actionButton("quit", "Quit")))
+        ),
+    conditionalPanel("input.tabselected==2",
         fluidRow(
             style="background:#e6f3ff;cursor:crosshair;col=blue;",
-            column(1, actionButton("quit", "Quit")),
-            column(1, actionButton("help", "Help")),
             column(2, selectInput("debug", label=NULL,
-                    choices=c("debug=0"=0, "debug=1"=1, "debug=2"=2),
-                    selected=0)),
+                    choices=c("debug=0"=0L, "debug=1"=1L, "debug=2"=2L),
+                    selected=debug)),
             column(2, selectInput("view", label=NULL,
                     choices=c("S prof."="S profile",
                         "T prof."="T profile",
                         "sigmaTheta prof."="sigmaTheta profile",
                         "TS"="TS"),
                     selected="T profile")),
-            column(2, selectInput("yProfile", label=NULL,
-                    choices=c("pressure"="pressure", "sigma-theta"="sigmaTheta"),
-                    selected="pressure")),
+            conditionalPanel("input.view != 'TS'",
+                column(2, selectInput("yProfile", label=NULL,
+                        choices=c("pressure"="pressure", "sigma-theta"="sigmaTheta"),
+                        selected="pressure"))),
             column(2, selectInput("plotType", label=NULL,
                     choices=c("type='l'"="l", "type='p'"="p", "type='o'"="o"),
-                    selected="o")),
-            column(1,  actionButton("clear", "Clear brush"))),
+                    selected="o"))),
+            #column(2, uiOutput("tagControl"))),
         fluidRow(
             style="background:#e6f3ff;cursor:crosshair;color:black;margin-top:0px;",
-            column(9, uiOutput("tagMsg")),
-            actionButton("goDown", HTML("&darr;")),
-            actionButton("goUp", HTML("&uarr;")),
-            actionButton("zoomOut", HTML("-")),
-            actionButton("zoomIn", HTML("+"))),
+            column(8, uiOutput("tagMsg")),
+            column(4,
+                actionButton("goDown", HTML("&darr;")),
+                actionButton("goUp", HTML("&uarr;")),
+                actionButton("zoomOut", HTML("-")), # can do e.g. img(src="/zoom_out.png")
+                actionButton("fullscale", HTML("1:1")))),
         fluidRow(
             style="background:#e6f3ff;cursor:crosshair;color:red;margin-top:0px;",
             column(12, uiOutput("tagHint"))),
         fluidRow(
             uiOutput("plotPanel"))),
-    conditionalPanel("input.tabselected==2",
-        fluidRow(uiOutput("summary"))))
+    conditionalPanel("input.tabselected == 3", fluidRow(uiOutput("summary"))),
+    conditionalPanel("input.tabselected == 4", fluidRow(uiOutput("help"))),
+    shinyBS::bsTooltip("debug",
+        paste("Control how much information is displayed in the console,",
+            "0 for a little, 1 for some, or 2 for a lot.")),
+    shinyBS::bsTooltip("view",
+        "Select the plot type."),
+    shinyBS::bsTooltip("yProfile",
+        "Select the quantity to show on the vertical axis."),
+    shinyBS::bsTooltip("plotType",
+        "Select plot style, p for points, l for lines, or o for points over lines."),
+    shinyBS::bsTooltip("goDown",
+        "Move view window down, closer to the ocean bottom."),
+    shinyBS::bsTooltip("goUp",
+        "Move view window up, closer to the surface."),
+    shinyBS::bsTooltip("zoomOut",
+        "Zoom the view out a little."),
+    shinyBS::bsTooltip("fullscale",
+        "Zoom the view all the way out, showing all the data."),
+    shinyBS::bsTooltip("tagHint",
+        paste("Black: file | database | tag count.",
+            "<br>Red: mouse/keyboard actions."))
+    )
 
 getUserName <- function()
 {
@@ -233,25 +384,48 @@ getUserName <- function()
 getDatabaseName <- function(prefix="ctd_tag")
     file.path(paste0(prefix, "_", getUserName(), ".db"))
 
+# Ignores a tag at level=0 (which means user indicate "nothing to tag")
+countTags <- function(file, dbname)
+{
+    tags <- getTags(file=file, dbname=dbname)
+    nrow(tags)
+}
+
+
 server <- function(input, output, session) {
+    plotting <- FALSE
     # extract shiny options (all are required) {
     dbname <- getShinyOption("dbname", getDatabaseName())
     file <- getShinyOption("file", NULL)
-    if (is.null(file))
-        stop("Must use shinyOptions(file=\"NAME OF A CTD FILE\")")
+    dir <- getShinyOption("dir", NULL)
+    fileGiven <- !is.null(file)
+    dirGiven <- !is.null(dir)
+    if (dirGiven) # remove a possible trailing '/'character (for later use in constructing filenames)
+        dir <- gsub("/$", "", dir)
+    if (!fileGiven && !dirGiven)
+        stop("Must use shinyOptions(file=) or shinyOptions(dir=)")
+    # Use tilde format for filenames
+    if (fileGiven) {
+        dmsg("original file name \"", file, "\"\n")
+        if (!is.null(file))
+            file <- tildeName(file)
+        dmsg("converted file name \"", file, "\"\n")
+    } else {
+        dmsg("file not given, using dir instead\n")
+    }
     height <- getShinyOption("height", 500)
     tagScheme <- getShinyOption("tagScheme", NULL)
     if (is.null(tagScheme)) {
-        tagLabels <- c("iTop", "iTop?", "iBot", "iBot?", "WS", "WS?", "CF", "CF?")
+        tagLabels <- c("iTop", "iTop?", "iBot", "iBot?", "WS", "WS?", "CF", "CF?", "NOTAGS")
         tagScheme <- data.frame(tagCode=seq_along(labels), tagLabel=tagLabels)
     }
     clickDistanceCriterion <- getShinyOption("clickDistanceCriterion", 0.02)
-    brushCriterion <- 0.1 # a brush must cover this fraction of plot area
-    debug <<- getShinyOption("debug", 0)
+    brushCriterion <- 0.05 # a brush must cover this fraction of plot area (avoids accidental brushing)
+    debug <<- pin(as.integer(getShinyOption("debug", 0L)), 0L, 2L)
+    updateSelectInput(session, "debug", selected=debug)
     # }
     overallHelp <- function() {
-        # FIXME: tailor help to state, e.g. if no focus, the only thing
-        # they can do is to focus, or to zoom/pan.
+        # tailor help message to the current state (e.g. is there a focus level?)
         helpMouse <- "<p><i>Mouse</i></p>
         <ul>
         <li>Click near the data to choose a focus point, which permits tagging. Note
@@ -271,11 +445,12 @@ server <- function(input, output, session) {
             <li>Click near data to focus on a level.</li>
             <li>Brush to zoom in to a specific region.</li>
             </ul>
-            <p><i>Possible button actions</i></p>
+            <p><i>Controlling the view</i></p>
             <ul>
-            <li>Pulldown menus alter the view.</li>
+            <li>Pulldown menus control the plot type.</li>
             <li>The up/down arrow buttons pan up and down (in pressure).</li>
-            <li>The '-' and '+' buttons zoom in and out with respect to the present centre.</li>
+            <li>The `-` button zooms out a little.</li>
+            <li>The `1:1` button zooms out to a full-scale view.</li>
             </ul>"
         } else {
             if (focusIsTagged()) {
@@ -287,76 +462,195 @@ server <- function(input, output, session) {
                 <ul>
                 <li>Type 'x' to remove the tag at the focus point.</li>
                 </ul>
-                <p><i>Possible button actions</i></p>
+                <p><i>Controlling the view</i></p>
                 <ul>
-                <li>Pulldown menus alter the view.</li>
+                <li>Pulldown menus control the plot type.</li>
                 <li>The up/down arrow buttons pan up and down (in pressure).</li>
-                <li>The '-' and '+' buttons zoom in and out with respect to the present centre.</li>
+                <li>The `-` button zooms out a little.</li>
+                <li>The `1:1` button zooms out to a full-scale view.</li>
                 </ul>"
             } else {
                 "<p><i>Possible pointer actions</i></p>
                 <ul>
-                <li>Click far from data, zoom, or pan to unselect focus point.</li>
+                <li>Click far from data to unselect the focus point.</li>
                 </ul>
                 <p><i>Possible keyboard actions</i></p>
                 <ul>
                 <li>Type a digit to tag the focus point. (The red text lists possible digits.)</li>
                 </ul>
-                <p><i>Possible button actions</i></p>
+                <p><i>Controlling the view</i></p>
                 <ul>
-                <li>Pulldown menus alter the view.</li>
+                <li>Pulldown menus control the plot type.</li>
                 <li>The up/down arrow buttons pan up and down (in pressure).</li>
-                <li>The '-' and '+' buttons zoom in and out with respect to the present centre.</li>
+                <li>The `-` button zooms out a little.</li>
+                <li>The `1:1` button zooms out to a full-scale view.</li>
                 </ul>"
             }
         }
     }
-    createDatabase(dbname=dbname, tagScheme=tagScheme)
-    values <- reactiveValues(brush=NULL)
-    ctd <- oce::read.oce(file)
-    data <- list(pressure=ctd@data$pressure, salinity=ctd@data$salinity, temperature=ctd@data$temperature)
-    data$theta <- swTheta(ctd)
-    data$yProfile <- data$pressure
-    data$ylabProfile <- resizableLabel("p")
-    data$sigmaTheta <- swSigmaTheta(ctd, eos="unesco")
-    dmsg1("About to define state.\n")
+
+    # Save file to database and also to 'state'
+    registerFile <- function(file)
+    {
+        msg("registerFile(\"", file, "\") ...\n")
+        file <- tildeName(file)
+        #msg("change file to \"", file, "\"\n")
+        # Add this file to the `files` table, if it's not there already.
+        con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+        files <- DBI::dbReadTable(con, "files")
+        #msg("DAN 5\n");print(files,file=stderr())
+        if (!(file %in% files$fileName)) {
+            dmsg("  adding \"", file, "\" to the `files` database table\n")
+            #dmsg("OLD `files` table\n")
+            #dprint(files)
+            df <- data.frame(fileId=1L+max(files$fileId), fileName=file)
+            DBI::dbAppendTable(con, "files", df)
+            files <- DBI::dbReadTable(con, "files")
+            #dmsg("NEW `files` table\n")
+            #dprint(files)
+        }
+        #msg("DAN 6\n");print(files,file=stderr())
+        DBI::dbDisconnect(con)
+        dmsg("  reading \"", file, "\"\n")
+        ctd <- oce::read.oce(file)
+        data <- list(pressure=ctd@data$pressure, salinity=ctd@data$salinity, temperature=ctd@data$temperature)
+        dmsg("  creating data\n")
+        data$theta <- oce::swTheta(ctd)
+        data$yProfile <- data$pressure
+        data$ylabProfile <- oce::resizableLabel("p")
+        data$sigmaTheta <- oce::swSigmaTheta(ctd, eos="unesco")
+        data$visible <- rep(TRUE, length(data$pressure))
+        dmsg("...done\n")
+        list(ctd=ctd, data=data)
+    }
+
+    focusIsVisible <- function() {
+        dmsg("DAN A 1\n")
+        dmsg("focusIsVisible: focusLevel=", state$focusLevel, "; returning ", state$visible[state$focusLevel], "\n")
+        dmsg("DAN A 2\n")
+        state$visible[state$focusLevel]
+    }
+
+    # create a new database or open an existing one
+    createDatabase(dbname=dbname, tagScheme=tagScheme) # or re-use existing one
+    if (!fileGiven)
+        file <- list.files(dir, pattern=".cnv$", full.names=TRUE)[1]
+    # Read the file.  (FIXME: add get-new-file mechanism somewhere above this spot)
+    fileInfo  <- registerFile(file)
+
+    #ctd <- oce::read.oce(file)
+    #data <- list(pressure=ctd@data$pressure, salinity=ctd@data$salinity, temperature=ctd@data$temperature)
+    #data$theta <- oce::swTheta(ctd)
+    #data$yProfile <- data$pressure
+    #data$ylabProfile <- oce::resizableLabel("p")
+    #data$sigmaTheta <- oce::swSigmaTheta(ctd, eos="unesco")
+    #dmsg1("About to define state.\n")
     state <- reactiveValues(
         step=0L,
+        stepTag=0L, # increment with tag modification, so summary works
         file=file,
+        dir=if(dirGiven) dir else NULL,
         analyst=getUserName(),
-        ctd=ctd,
-        data=data,
-        ndata=length(data$pressure),
+        ctd=fileInfo$ctd,
+        data=fileInfo$data,
         focusLevel=NULL,
         usr=c(0, 1, 0, 1),
-        visible=rep(TRUE, length(data$pressure)) # all points visible at the start
+        visible=rep(TRUE, length(fileInfo$data$pressure)) # all points visible at the start
         )
+
+    #canTag <- function()
+    #{
+    #    con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+    #    files <- DBI::dbReadTable(con, "files")
+    #    DBI::dbDisconnect(con)
+    #    w <- which(files$fileName == state$file)
+    #    dmsg(vectorShow(files[w,"tagStatus"]))
+    #    if (length(w) == 1L) (files[w, "tagStatus"] != 0L) else TRUE
+    #}
+
+    focusIsSet <- function()
+    {
+        dmsg1("in focusIsSet()\n")
+        !is.null(state$focusLevel)
+    }
 
     focusIsTagged <- function()
     {
-        !is.null(state$focusLevel) && (state$focusLevel %in% getTags(state$file, dbname=dbname)$level)
+        dmsg1("in focusIsTagged()\n")
+        focusIsSet() && (state$focusLevel %in% getTags(state$file, dbname=dbname)$level)
     }
 
     focusIsVisible <- function()
     {
-        !is.null(state$focusLevel) && state$visible[state$focusLevel]
+        dmsg1("in focusIsVisible()\n")
+        focusIsSet() && state$visible[state$focusLevel]
     }
 
-    observeEvent(input$clear,
+    observeEvent(input$file1,
         {
-            values$brush <- NULL
-            shinyjs::runjs("document.getElementById('plot_brush').remove()")
+            msg("observeEvent on ", vectorShow(input$file1))
+            msg(vectorShow(state$dir))
+            filename <- tildeName(paste0(state$dir, "/", input$file1))
+            fileInfo <- registerFile(filename)
+            state$ctd <<- fileInfo$ctd
+            state$data <<- fileInfo$data
+            state$focusLevel <<- NULL
+            state$file <<- filename
         })
+
+    #observeEvent(state$file,
+    #    {
+    #        msg("observeEvent on ", vectorShow(state$file))
+    #    })
+
+    #observeEvent(state$tagStatus,
+    #    {
+    #        msg("NEW state$tagStatus=", state$tagStatus, "\n")
+    #    })
+
+    #<> observeEvent(input$disableTagging,
+    #<>     {
+    #<>         msg("observing input$disableTagging\n")
+    #<>         con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+    #<>         files <- DBI::dbReadTable(con, "files")
+    #<>         w <- which(files$fileName == file)
+    #<>         if (length(w) == 0L) {
+    #<>             stop("file \"", file, "\" is not present in `files` table")
+    #<>         } else if (length(w) > 1L) {
+    #<>             stop("file \"", file, "\" is found more than once in `files` table")
+    #<>         } else {
+    #<>             files[w, "tagStatus"] <- 0L
+    #<>             DBI::dbWriteTable(con, "files", files, overwrite=TRUE)
+    #<>             state$tagStatus <<- 0L
+    #<>             dmsg("set file[", w, ",'tagStatus'] and state$tagStatus to 0\n")
+    #<>         }
+    #<>         DBI::dbDisconnect(con)
+    #<>     })
+
+    #<> observeEvent(input$enableTagging,
+    #<>     {
+    #<>         msg("observing input$enableTagging\n")
+    #<>         con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+    #<>         files <- DBI::dbReadTable(con, "files")
+    #<>         w <- which(files$fileName == file)
+    #<>         #?dmsg1(vectorShow(w))
+    #<>         if (length(w) == 0L) {
+    #<>             stop("file \"", file, "\" is not present in `files` table")
+    #<>         } else if (length(w) > 1L) {
+    #<>             stop("file \"", file, "\" is found more than once in `files` table")
+    #<>         } else {
+    #<>             dmsg("changing status\n")
+    #<>             files[w, "tagStatus"] <- 1L
+    #<>             state$tagStatus <<- 1L
+    #<>             DBI::dbWriteTable(con, "files", files, overwrite=TRUE)
+    #<>             dmsg("set file[", w, ",'tagStatus'] and state$tagStatus to 1\n")
+    #<>         }
+    #<>         DBI::dbDisconnect(con)
+    #<>     })
 
     observeEvent(input$quit,
         {
             stopApp()
-        })
-
-    observeEvent(input$help,
-        {
-            showModal(modalDialog(title=NULL,
-                    size="xl", HTML(overallHelp()), easyClose=TRUE))
         })
 
     observeEvent(input$debug,
@@ -366,89 +660,94 @@ server <- function(input, output, session) {
 
     observeEvent(input$goUp,
         {
-            dmsg("responding to 'goUp'\n")
-            state$focusLevel <- NULL # remove focus
-            if (!head(state$visible, 1)) {
+            if (!head(state$visible, 1)) { # cannot go up if already showing top level
+                dmsg("responding to 'goUp'\n")
+                ndata <- length(state$visible)
                 limits <- visibleToLimits(state$visible)
                 span <- diff(limits)
-                limits <- limitsTrim(limits - (1/4)*span, state$ndata)
-                state$visible <- limitsToVisible(limits, state$ndata)
+                limits <- limitsTrim(limits - (1/3)*span, ndata)
+                state$visible <- limitsToVisible(limits, ndata)
             }
         })
 
     observeEvent(input$goDown,
         {
-            dmsg("responding to 'goDown'\n")
-            state$focusLevel <- NULL # remove focus
-            if (!tail(state$visible, 1)) {
+            if (!tail(state$visible, 1)) { # cannot go down if already showing bottom level
+                dmsg("responding to 'goDown'\n")
+                ndata <- length(state$visible)
                 limits <- visibleToLimits(state$visible)
                 span <- diff(limits)
-                limits <- limitsTrim(limits + (1/4)*span, state$ndata)
-                state$visible <- limitsToVisible(limits, state$ndata)
+                limits <- limitsTrim(limits + (1/3)*span, ndata)
+                state$visible <- limitsToVisible(limits, ndata)
             }
          })
 
-    observeEvent(input$zoomIn,
+    observeEvent(input$fullscale,
         {
-            dmsg("responding to 'zoomIn'\n")
-            state$focusLevel <- NULL # remove focus
-            limits <- visibleToLimits(state$visible)
-            dmsg(vectorShow(limits))
-            span <- max(diff(limits) / 4, 10)
-            dmsg(vectorShow(span))
-            limits <- limitsTrim(limits + c(span, -span), state$ndata)
-            state$visible <- limitsToVisible(limits, state$ndata)
+            dmsg("responding to '1:1'\n")
+            state$visible <<- rep(TRUE, length(state$visible))
         })
  
     observeEvent(input$zoomOut,
         {
             dmsg("responding to 'zoomOut'\n")
-            state$focusLevel <- NULL # remove focus
+            #state$focusLevel <- NULL # remove focus
             limits <- visibleToLimits(state$visible)
+            ndata <- length(state$visible)
             span <- max(diff(limits) / 4, 10)
-            limits <- limitsTrim(limits + c(-span, span), state$ndata)
-            state$visible <- limitsToVisible(limits, state$ndata)
+            limits <- limitsTrim(limits + c(-span, span), ndata)
+            state$visible <- limitsToVisible(limits, ndata)
         })
 
-    observeEvent(input$click,
+    observeEvent(input$dblclick,
         {
-            closest <- findNearestLevel(input$click$x, input$click$y, state$usr, state$data, input$view)
-            dmsg(sprintf("click yielded nearest=%d, relativeDistance=%.1f%%\n", closest$focusLevel, 100*closest$relativeDistance))
-            state$focusLevel <- if (closest$relativeDistance < clickDistanceCriterion) closest$nearest else NULL
+            dmsg("responding to input$dblclick ...\n")
+            #print(input$dblclick, file=stderr())
+            closest <- findNearestLevel(input$dblclick, state$data, input$view)
+            #print(closest, file=stderr())
+            #dmsg(sprintf("  nearest=%d, relativeDistance=%.1f%%\n", closest$nearest, 100*closest$relativeDistance))
+            state$focusLevel <<- if (closest$relativeDistance < clickDistanceCriterion) closest$nearest else NULL
+            dmsg("  ... observeEvent(input$dblclick) set ", vectorShow(state$focusLevel))
         })
 
     # Handle brushing events.  First, clear the focus.  Then set visibility
-    # based on the pressure limits of brushed region.
+    # based on the pressure limits of brushed region. Ignore very small brush
+    # areas, which usually result from a sloppy click.  R/shiny does not make
+    # it easy to distinguish between clicks that are alone, and clicks that
+    # start a brushing event.  Whether the present setting work with long data
+    # files is an open question -- the UI might need some alteration in the
+    # brush parameters.
     observeEvent(input$brush,
         {
-            state$focusLevel <- NULL
+            dmsg("responding to input$brush ...\n")
+            xBrushSpan <- input$brush$xmax - input$brush$xmin
+            yBrushSpan <- input$brush$ymax - input$brush$ymin
+            xFraction <- with(input$brush, (xmax-xmin) / (domain$right - domain$left))
+            yFraction <- with(input$brush, (ymax-ymin) / (domain$top - domain$bottom))
+            dmsg1(oce::vectorShow(xFraction))
+            dmsg1(oce::vectorShow(yFraction))
+            fraction <- sqrt(xFraction^2 + yFraction^2)
+            dmsg1("  ", oce::vectorShow(fraction))
+            if (fraction < brushCriterion) {
+                dmsg1(sprintf("  ignoring brush, since it occupies only %.2f%% of plot area (criterion is %.2f%%)\n",
+                        100*fraction, 100*brushCriterion))
+                return()
+            }
+            #state$focusLevel <- NULL
             if (grepl("profile", input$view)) {
-                dmsg("brushed on a profile (ignoring x extend of brush)\n")
+                dmsg1("  profile case: only y extent considered\n")
                 visible <- with(input$brush, ymin <= state$data$yProfile & state$data$yProfile <= ymax)
             } else if (input$view == "TS") {
-                dmsg("brushed on a TS diagram\n")
-                xBrushSpan <- input$brush$xmax - input$brush$xmin
-                yBrushSpan <- input$brush$ymax - input$brush$ymin
-                xFraction <- with(input$brush, (xmax-xmin) / (domain$right - domain$left))
-                yFraction <- with(input$brush, (ymax-ymin) / (domain$top - domain$bottom))
-                dmsg1(vectorShow(xFraction))
-                dmsg1(vectorShow(yFraction))
-                fraction <- sqrt(xFraction^2 + yFraction^2)
-                dmsg1("  ", vectorShow(fraction))
-                if (fraction < brushCriterion) {
-                    dmsg1(sprintf("  ignoring brush, since it occupies only %.2f%% of plot area (criterion is %.2f%%)\n",
-                            100*fraction, 100*brushCriterion))
-                    return()
-                }
+                dmsg1("  TS case: consider both S and T\n")
                 x <- state$data$salinity
                 y <- state$data$theta
                 # Find first and last pressures spanning box, so TS extrema are retained.
                 npoints <- length(x)
                 visible <- with(input$brush, xmin <= x & x <= xmax & ymin <= y & y <= ymax)
                 first <- which(visible)[1]
-                dmsg2(vectorShow(first))
+                dmsg2(oce::vectorShow(first))
                 last <- length(visible) + 1 - which(rev(visible))[1]
-                dmsg2(vectorShow(last))
+                dmsg2(oce::vectorShow(last))
                 if (last <= 0)
                     stop("bug: last is 0 or negative")
                 if (first > last) {
@@ -460,120 +759,148 @@ server <- function(input, output, session) {
                     stop("bug: first must be positive, but it is ", first)
                 if (last <= 0)
                     stop("bug: last must be positive, but it is ", last)
-                dmsg1(sprintf("  first=%d last=%d\n", first, last))
+                dmsg2(sprintf("  first=%d last=%d\n", first, last))
                 visible <- rep(FALSE, npoints)
                 visible[first:last] <- TRUE
             }
             state$visible <<- visible
+            dmsg("... input$brush ended\n")
         })
 
+    # Ignore key presses if a plot is being drawn, perhaps helping with issue 3.
+    # https://github.com/dankelley/ctd/issues/3
     observeEvent(input$keypressTrigger,
         {
-            dmsg1(vectorShow(input$keypress))
-            key <- intToUtf8(input$keypress)
-            dmsg(vectorShow(key))
-            #if (key == "?") {
-            #    showModal(modalDialog(title=NULL,
-            #            size="xl", HTML(overallHelp()), easyClose=TRUE))
-            #} else if (key %in% as.character(0:9)) {
-            if (key %in% as.character(0:9)) {
-                if (is.null(state$focusLevel)) {
-                    showNotification("No focus points")
-                } else {
-                    dmsg1("responding to '", key, "' click for tagging\n")
-                    if (state$visible[state$focusLevel]) {
-                        #dmsg("  visible. should tag at level ", state$focusLevel, "\n")
-                        #dmsg("  analystName=\"", state$analystName, "\"\n")
-                        #dmsg("  file=\"", state$file, "\"\n")
-                        dmsg("about to saveTag()\n")
-                        saveTag(file=state$file, level=state$focusLevel, tagCode=as.integer(key),
-                            tagScheme=tagScheme, analyst=state$analyst, dbname=dbname)
-                        dmsg1("    ... done with saveTag()\n")
-                        state$step <<- state$step + 1 # other shiny elements notice this
-                    } else {
-                        showNotification("No focus points in current view")
-                    }
-                }
-            #} else if (key == "d") {
-            #    msg(vectorShow(debug))
-            #    debug <<- if (debug > 0) 0 else 1
-            #    msg(" ->", vectorShow(debug))
-            #} else if (key == "O") {
-            #    dmsg("responding to 'O' click to return to full-scale\n")
-            #    state$visible <- rep(TRUE, state$ndata)
-            } else if (key == "x") {
-                dmsg("responding to 'x' to remove tag on focus point\n")
-                if (focusIsTagged()) {
-                    dmsg("about to untag at level ", state$focusLevel, "\n")
+            if (!plotting) {
+                key <- intToUtf8(input$keypress)
+                msg("key=", key, "\n")
+                dmsg("keypress (", key, ") is being handled, since we are not plotting (FIXME: need this?)\n")
+                if (key %in% as.character(tagScheme$tagCode) && focusIsVisible() && !focusIsTagged()) {
+                    dmsg("  tagging at level ", state$focusLevel, "\n")
+                    addTag(file=state$file, level=state$focusLevel, tagCode=as.integer(key),
+                        tagScheme=tagScheme, analyst=state$analyst, dbname=dbname)
+                    state$step <<- state$step + 1 # other shiny elements notice this
+                    state$stepTag <<- state$stepTag + 1 # only 'summary' notices this
+                } else if (key == "x" && focusIsTagged()) {
+                    dmsg("  untagging at level ", state$focusLevel, "\n")
                     removeTag(file=state$file, level=state$focusLevel, dbname=dbname)
                     state$step <<- state$step + 1 # other shiny elements notice this
+                    state$stepTag <<- state$stepTag + 1 # only 'summary' notices this
+                } else {
+                    dmsg("  ignoring keypress (invalid key, or no focus level)\n")
                 }
+            } else {
+                dmsg("keypress (", key, ") ignored, since still plotting\n")
             }
-            #} else if (key == "j") {
-            #    dmsg("responding to 'j' click for moving down in water column\n")
-            #    if (!tail(state$visible, 1)) {
-            #        limits <- visibleToLimits(state$visible)
-            #        span <- diff(limits)
-            #        limits <- limitsTrim(limits + (1/4)*span, state$ndata)
-            #        state$visible <- limitsToVisible(limits, state$ndata)
-            #    }
-            #} else if (key == "k") {
-            #    dmsg("responding to 'k' click for moving up in water column\n")
-            #    if (!head(state$visible, 1)) {
-            #        limits <- visibleToLimits(state$visible)
-            #        span <- diff(limits)
-            #        limits <- limitsTrim(limits - (1/4)*span, state$ndata)
-            #        state$visible <- limitsToVisible(limits, state$ndata)
-            #    }
-            #}
         })
 
     observeEvent(input$yProfile, {
         dmsg("observed input$yProfile=\"", input$yProfile, "\"\n")
         if (input$yProfile == "pressure") {
-            state$data$yProfile <<- data$pressure
-            state$data$ylabProfile <<- resizableLabel("p")
-            dmsg1("    ", vectorShow(data$yProfile))
+            state$data$yProfile <<- state$data$pressure
+            state$data$ylabProfile <<- oce::resizableLabel("p")
         } else {
-            state$data$yProfile <<- data$sigmaTheta
+            state$data$yProfile <<- state$data$sigmaTheta
             state$data$ylabProfile <<- expression(sigma[theta]* " ["* kg/m^3*"]")
-            dmsg1("    ", vectorShow(data$yProfile))
         }
     })
 
-    #output$focusLevelMsg <- renderText(
-    #    {
-    #        #if (!is.null(input$hover$x)) {
-    #        #    if (input$view == "T profile") {
-    #        #        sprintf("T=%.3f degC, p=%.3f dbar\n", input$hover$x, input$hover$y)
-    #        #    } else if (input$view == "S profile") {
-    #        #        sprintf("S=%.3f, p=%.3f dbar\n", input$hover$x, input$hover$y)
-    #        #    } else if (input$view == "TS") {
-    #        #        sprintf("S=%.3g C, T=%.3f\n", input$hover$x, input$hover$y)
-    #        #    } else if (input$view == "N(z)") {
-    #        #        sprintf("N=%.3g, p=%.3f dbar\n", input$hover$x, input$hover$y)
-    #        #    } else {
-    #        #        "FIXME"
-    #        #    }
-    #        #} else {
-    #        pvisible <- data$pressure[state$visible]
-    #        sprintf("%.1f to %.1f dbar shown", min(pvisible), max(pvisible))
-    #        #}
-    #    })
+    output$fileSelectFocus <- renderUI(
+        {
+            msg("in output$fileSelectFocus\n")
+            fluidRow(
+                column(12,
+                    radioButtons("fileSelectFocusChoice",
+                        paste("Focus within", state$dir),
+                        c("all files", "previously examined files", "unexamined files"))))
+        })
+
+    output$fileSelect <- renderUI(
+        {
+            dmsg("in output$fileSelect\n")
+            dmsg("  input$fileSelectFocusChoice=", input$fileSelectFocusChoice, "\n")
+            if (!is.null(state$dir)) {
+                # The focus is empty on the first call, as the shiny interface
+                # is being constructed.
+                focus <- input$fileSelectFocusChoice
+                if (!length(focus))
+                    focus <- "all files"
+                msg("  focus=\"", focus, "\"\n")
+                filesInDatabase <- sort(gsub(paste0(state$dir,"/"), "", getTableFromDatabase("files", dbname)$fileName))
+                filesInDir <- list.files(state$dir, pattern=".cnv$")
+                choices <- if (focus == "all files")
+                    filesInDir
+                else if (focus == "previously examined files")
+                    filesInDatabase
+                else if (focus == "unexamined files")
+                    filesInDir[!filesInDir %in% filesInDatabase]
+                fluidRow(
+                    column(12,
+                        selectInput("file1", label="Choose a file", choices=choices, width="50%"))
+                )
+            }
+        })
+
+
+    # Do not show a button if the profile has tags.  If it has no tags, display
+    # 'Disable Tagging' if tagStatus is -1 (which is the case for a
+    # newly-opened file) or `Enable Tagging` if tagStatus is 0.  Clicking
+    # on 'Disable Tagging' changes tagStatus to 0...???
+    #
+    # tagState = -1 Initial state for a file that has not been examined before.
+    # In this state, the button says 'Disable Tagging'. If it is clicked, then
+    # the button changes to read 'Enable Tagging'.
+    # then
+    # tagging will not be permitted.
+    # that is clicked then tagStatus changes to 0, and tagging is permitted. so
+    # that the button changes to say 'Enable Tagging'.
+    # nothin
+    # Only show the 'Do Not Tag' button if the profile has zero tags.  That is,
+    # the user is forced to remove tags first.  This avoids contradictions of
+    # thought and action.
+    #<> output$tagControl <- renderUI(
+    #<>     {
+    #<>         tagStatus <- state$tagStatus # so this gets called
+    #<>         #?dmsg(vectorShow(canTag()))
+    #<>         #?con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+    #<>         #?files <- DBI::dbReadTable(con, "files")
+    #<>         #?DBI::dbDisconnect(con)
+    #<>         #print(files)
+    #<>         #?tagStatus <- files[files$fileName == state$file, "tagStatus"]
+    #<>         msg(vectorShow(tagStatus))
+    #<>         tagCount <- countTags(state$file, dbname)
+    #<>         msg(vectorShow(tagCount))
+    #<>         #browser()
+    #<>         # Do not show either button if we have tags
+    #<>         if (tagCount == 0L) {
+    #<>             # -1 is the initial state for a new file.  By default, tagging
+    #<>             # is allowed.
+    #<>             if (tagStatus == -1L) {
+    #<>                 #<> state$tagStatus <<- 0L
+    #<>                 #<> files[wfile, "tagStatus"] <- 0L
+    #<>                 #<> DBI::dbWriteTable(con, "files", files, overwrite=TRUE)
+    #<>                 #<> DBI::dbDisconnect(con)
+    #<>                 actionButton("disableTagging", "Disable Tagging")
+    #<>             } else if (tagStatus == 0) {
+    #<>                 #<> state$tagStatus <<- -1L
+    #<>                 #<> files[wfile, "tagStatus"] <- -1L
+    #<>                 #<> DBI::dbWriteTable(con, "files", files, overwrite=TRUE)
+    #<>                 #<> DBI::dbDisconnect(con)
+    #<>                 #<> state$tagStatus <<- tagStatus
+    #<>                 actionButton("enableTagging", "Enable Tagging")
+    #<>             }
+    #<>         }
+    #<>     })
 
     output$tagMsg <- renderText(
         {
-            state$step # to cause shiny to update this
-            file <- state$file
-            tags <- getTags(state$file, dbname=dbname)
-            tags <- tags[tags$file == file, ]
-            ntags <- nrow(tags)
-            tagMsg <- pluralize(nrow(tags), "tag")
+            state$stepTag # to cause shiny to update this
+            tagMsg <- pluralize(countTags(state$file, dbname), "tag")
             #focusMsg <- if (focusIsTagged()) paste0("| focus, at level ", state$focusLevel, ", is tagged") else ""
-            pvisible <- data$pressure[state$visible]
+            #pvisible <- data$pressure[state$visible]
             #viewMsg <- sprintf("%.1f to %.1f dbar", min(pvisible), max(pvisible))
             #paste0(file, " | ", getDatabaseName(), " | ", tagMsg, " ", focusMsg, " | ", viewMsg)
-            paste0(file, " | ", dbname, " | ", tagMsg)
+            paste0(state$file, " | ", dbname, " | ", tagMsg)
         })
 
     output$tagHint <- renderText(
@@ -582,153 +909,185 @@ server <- function(input, output, session) {
                 tags <- getTags(state$file, dbname=dbname)
                 if (state$focusLevel %in% tags$level) {
                     focusTag <- tags[tags$level == state$focusLevel, "tagLabel"]
-                    sprintf("Level %d (%.1f dbar) tagged \"%s\"; type 'x' to remove tag.",
+                    sprintf("%s %d (%.1f dbar) tagged \"%s\"; type 'x' to remove tag.",
+                        if (focusIsVisible()) "Level" else "OFFSCALE level",
                         state$focusLevel,
                         data$pressure[state$focusLevel],
                         focusTag)
                 } else {
-                    sprintf("Level %d (%.1f dbar): may tag %s.",
+                    sprintf("%s %d (%.1f dbar): may tag %s.",
+                        if (focusIsVisible()) "Level" else "OFFSCALE level",
                         state$focusLevel,
-                        data$pressure[state$focusLevel],
+                        state$data$pressure[state$focusLevel],
                         paste(tagScheme$tagCode, tagScheme$tagLabel, collapse=", ", sep=" for "))
                 }
             } else {
-                "Click mouse near a point to focus on it (perhaps to tag it)."
+                "Double-click mouse near a point to focus on it."
             }
         })
 
     output$summary <- renderUI(
         {
+            state$stepTag # to cause shiny to update this
             # FIXME: how to render more info, e.g. dbname, present file, etc?
-            con <- dbConnect(SQLite(), dbname)
-            tags <- dbReadTable(con, "tags")
-            dbDisconnect(con)
-            # Make time readible
-            t <- numberAsPOSIXct(tags$analysisTime)
-            tags$analysisTime <- format(t, "%Y-%m-%d %H:%M:%S UTC")
+            dmsg("responding to request for a summary\n")
+            con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+            files <- DBI::dbReadTable(con, "files")
+            tags <- DBI::dbReadTable(con, "tags")
+            tagScheme <- DBI::dbReadTable(con, "tagScheme")
+            DBI::dbDisconnect(con)
+            #dprint(names(tags))
+            #dprint(names(files))
+            tmp <- merge(merge(tags, files, by="fileId"), tagScheme, by="tagCode")
+            o <- order(tmp$analysisTime, decreasing=TRUE)
+            tmp <- tmp[o, ]
+            # reorder and rename for clarity
+            tmp <- data.frame(file=tmp$fileName, level=tmp$level, tag=tmp$tagLabel,
+                analyst=tmp$analyst,
+                analysisTime=format(oce::numberAsPOSIXct(tmp$analysisTime),
+                    "%Y-%m-%d %H:%M:%S UTC"))
             #renderTable(tags)
-            renderDataTable(tags)
+            DT::renderDT(tmp)
+        })
+
+    output$help <- renderUI(
+        {
+            HTML(overallHelp())
         })
  
     output$plotPanel <- renderUI(
         {
             state$step # cause a shiny update
-            shinyjs::runjs(sprintf("document.getElementById('plot_brush').remove()"))
             plotOutput("plot",
                 brush=brushOpts("brush", delay=2000, resetOnNew=TRUE),
-                click=clickOpts("click"))
+                dblclick=clickOpts("dblclick"))
         })
 
     output$plot <- renderPlot({
+        dmsg("output$plot...\n")
+        dmsg(vectorShow(input$view))
+        plotting <- TRUE
         state$step # cause a shiny update
-        input$yProfile # cause a shiny update
+        #??? input$yProfile # cause a shiny update
         if (input$view == "T profile") {
-            par(mar=c(1, 3.3, 3, 1.5), mgp=c(1.9, 0.5, 0))
             x <- state$data$theta[state$visible]
             y <- state$data$yProfile[state$visible]
-            plot(x, y, ylim=rev(range(y)), yaxs="i", type=input$plotType,
-                cex=default$Tprofile$cex, col=default$Tprofile$col, lwd=default$Tprofile$lwd, pch=default$Tprofile$pch,
-                axes=FALSE, xlab="", ylab="")
-            state$usr <<- par("usr")
-            if (!is.null(state$focusLevel)) {
-                with(default$focus,
-                    points(state$data$theta[state$focusLevel], state$data$yProfile[state$focusLevel],
-                        cex=cex, col=col, lwd=lwd, pch=pch))
+            if (length(x) > 0L && length(y) > 0L) {
+                dmsg("about to plot T profile...\n")
+                par(mar=c(1, 3.3, 3, 1.5), mgp=c(1.9, 0.5, 0))
+                plot(x, y, ylim=rev(range(y)), yaxs="i", type=input$plotType,
+                    cex=default$Tprofile$cex, col=default$Tprofile$col, lwd=default$Tprofile$lwd, pch=default$Tprofile$pch,
+                    axes=FALSE, xlab="", ylab="")
+                state$usr <<- par("usr")
+                if (!is.null(state$focusLevel)) {
+                    with(default$focus,
+                        points(state$data$theta[state$focusLevel], state$data$yProfile[state$focusLevel],
+                            cex=cex, col=col, lwd=lwd, pch=pch))
+                }
+                tags <- subset(getTags(state$file, dbname=dbname), level > 0L,)
+                if (nrow(tags) > 0) {
+                    with(default$tag,
+                        points(state$data$theta[tags$level], state$data$yProfile[tags$level],
+                            cex=cex, pch=pch, lwd=lwd, col=col))
+                    text(state$data$theta[tags$level], state$data$yProfile[tags$level], tags$tagLabel, col=2, pos=4)
+                }
+                axis(side=2)
+                axis(side=3)
+                mtext(state$data$ylabProfile, side=2, line=1.5)
+                mtext(oce::resizableLabel("theta"), side=3, line=1.5)
+                box()
+                dmsg("  ... finished T profile\n")
             }
-            tags <- getTags(state$file, dbname=dbname)
-            if (nrow(tags) > 0) {
-                with(default$tag,
-                    points(state$data$theta[tags$level], state$data$yProfile[tags$level],
-                        cex=cex, pch=pch, lwd=lwd, col=col))
-                text(state$data$theta[tags$level], state$data$yProfile[tags$level], tags$tagLabel, col=2, pos=4)
-            }
-            axis(side=2)
-            axis(side=3)
-            mtext(data$ylab, side=2, line=1.5)
-            mtext(resizableLabel("theta"), side=3, line=1.5)
-            box()
         } else if (input$view == "S profile") {
-            par(mar=c(1, 3, 3, 1), mgp=c(1.9, 0.5, 0))
             x <- state$data$salinity[state$visible]
             y <- state$data$yProfile[state$visible]
-            plot(x, y, ylim=rev(range(y)), yaxs="i", type=input$plotType,
-                cex=default$Sprofile$cex, col=default$Sprofile$col, lwd=default$Sprofile$lwd, pch=default$Sprofile$pch,
-                axes=FALSE, xlab="", ylab="")
-            state$usr <<- par("usr")
-            if (!is.null(state$focusLevel)) {
-                dmsg("S profile... ", vectorShow(state$focusLevel))
-                with(default$focus,
-                    points(state$data$salinity[state$focusLevel], state$data$yProfile[state$focusLevel],
-                        cex=cex, col=col, lwd=lwd, pch=pch))
+            if (length(x) > 0L && length(y) > 0L) {
+                dmsg("about to plot S profile...\n")
+                par(mar=c(1, 3, 3, 1), mgp=c(1.9, 0.5, 0))
+                plot(x, y, ylim=rev(range(y)), yaxs="i", type=input$plotType,
+                    cex=default$Sprofile$cex, col=default$Sprofile$col, lwd=default$Sprofile$lwd, pch=default$Sprofile$pch,
+                    axes=FALSE, xlab="", ylab="")
+                state$usr <<- par("usr")
+                if (!is.null(state$focusLevel)) {
+                    with(default$focus,
+                        points(state$data$salinity[state$focusLevel], state$data$yProfile[state$focusLevel],
+                            cex=cex, col=col, lwd=lwd, pch=pch))
+                }
+                tags <- subset(getTags(state$file, dbname=dbname), level > 0L,)
+                if (nrow(tags) > 0) {
+                    with(default$tag,
+                        points(state$data$salinity[tags$level], state$data$yProfile[tags$level],
+                            cex=cex, pch=pch, lwd=lwd, col=col))
+                    text(state$data$salinity[tags$level], state$data$yProfile[tags$level], tags$tagLabel, col=2, pos=4)
+                }
+                axis(side=2)
+                axis(side=3)
+                mtext(state$data$ylabProfile, side=2, line=1.5)
+                mtext(oce::resizableLabel("S"), side=3, line=1.5)
+                box()
             }
-            tags <- getTags(state$file, dbname=dbname)
-            if (nrow(tags) > 0) {
-                with(default$tag,
-                    points(state$data$salinity[tags$level], state$data$yProfile[tags$level],
-                        cex=cex, pch=pch, lwd=lwd, col=col))
-                text(state$data$salinity[tags$level], state$data$yProfile[tags$level], tags$tagLabel, col=2, pos=4)
-            }
-            axis(side=2)
-            axis(side=3)
-            mtext(data$ylab, side=2, line=1.5)
-            mtext(resizableLabel("S"), side=3, line=1.5)
-            box()
         } else if (input$view == "sigmaTheta profile") {
-            par(mar=c(1, 3.3, 3, 1), mgp=c(1.9, 0.5, 0))
-            dmsg("doing sigmaTheta profile")
             x <- state$data$sigmaTheta[state$visible]
             y <- state$data$yProfile[state$visible]
-            plot(x, y, ylim=rev(range(y)), yaxs="i", type=input$plotType,
-                cex=default$Tprofile$cex, col=default$Tprofile$col, lwd=default$Tprofile$lwd, pch=default$Tprofile$pch,
-                axes=FALSE, xlab="", ylab="")
-            state$usr <<- par("usr")
-            if (!is.null(state$focusLevel)) {
-                with(default$focus,
-                    points(state$data$sigmaTheta[state$focusLevel], state$data$yProfile[state$focusLevel],
-                        cex=cex, col=col, lwd=lwd, pch=pch))
+            if (length(x) > 0L && length(y) > 0L) {
+                dmsg("about to plot sigmaTheta profile...\n")
+                par(mar=c(1, 3.3, 3, 1), mgp=c(1.9, 0.5, 0))
+                plot(x, y, ylim=rev(range(y)), yaxs="i", type=input$plotType,
+                    cex=default$Tprofile$cex, col=default$Tprofile$col, lwd=default$Tprofile$lwd, pch=default$Tprofile$pch,
+                    axes=FALSE, xlab="", ylab="")
+                state$usr <<- par("usr")
+                if (!is.null(state$focusLevel)) {
+                    with(default$focus,
+                        points(state$data$sigmaTheta[state$focusLevel], state$data$yProfile[state$focusLevel],
+                            cex=cex, col=col, lwd=lwd, pch=pch))
+                }
+                tags <- subset(getTags(state$file, dbname=dbname), level > 0L,)
+                if (nrow(tags) > 0) {
+                    with(default$tag,
+                        points(state$data$sigmaTheta[tags$level], state$data$yProfile[tags$level],
+                            cex=cex, pch=pch, lwd=lwd, col=col))
+                    text(state$data$sigmaTheta[tags$level], state$data$yProfile[tags$level], tags$tagLabel, col=2, pos=4)
+                }
+                axis(side=2)
+                axis(side=3)
+                mtext(state$data$ylabProfile, side=2, line=1.5)
+                mtext(oce::resizableLabel("sigmaTheta"), side=3, line=1.5)
+                box()
             }
-            tags <- getTags(state$file, dbname=dbname)
-            if (nrow(tags) > 0) {
-                with(default$tag,
-                    points(state$data$sigmaTheta[tags$level], state$data$yProfile[tags$level],
-                        cex=cex, pch=pch, lwd=lwd, col=col))
-                text(state$data$sigmaTheta[tags$level], state$data$yProfile[tags$level], tags$tagLabel, col=2, pos=4)
-            }
-            axis(side=2)
-            axis(side=3)
-            mtext(data$ylab, side=2, line=1.5)
-            mtext(resizableLabel("sigmaTheta"), side=3, line=1.5)
-            box()
         } else if (input$view == "TS") {
-            par(mar=c(1, 3, 3, 1), mgp=c(1.9, 0.5, 0))
             x <- state$data$salinity[state$visible]
             y <- state$data$temperature[state$visible]
-            p <- state$data$pressure[state$visible]
-            ctd <- as.ctd(x, y, p)
-            # Plot empty with visible data, but then add the actual full data.
-            # That way, we can see tagged points even if they are in the 4%
-            # within-plot buffer zone.  (I am not using xaxs="i" etc because
-            # it can put intrusions on the axis.)
-            plotTS(ctd, eos="unesco", type="n")
-            points(state$data$salinity, state$data$theta, type=input$plotType,
-                cex=default$TS$cex, col=default$TS$col, lwd=default$TS$lwd, pch=default$TS$pch)
-            state$usr <<- par("usr")
-            if (!is.null(state$focusLevel)) {
-                with(default$focus,
-                    points(state$data$salinity[state$focusLevel], state$data$theta[state$focusLevel],
-                        cex=cex, col=col, lwd=lwd, pch=pch))
-            }
-            tags <- getTags(state$file, dbname=dbname)
-            if (nrow(tags) > 0) {
-                with(default$tag,
-                    points(state$data$salinity[tags$level], state$data$theta[tags$level],
-                        cex=cex, pch=pch, lwd=lwd, col=col))
-                text(state$data$salinity[tags$level], state$data$theta[tags$level], tags$tagLabel, col=2, pos=4)
+            if (length(x) > 0L && length(y) > 0L) {
+                dmsg("about to plot TS...\n")
+                par(mar=c(1, 3, 3, 1), mgp=c(1.9, 0.5, 0))
+                p <- state$data$pressure[state$visible]
+                ctd <- as.ctd(x, y, p)
+                # Plot empty with visible data, but then add the actual full data.
+                # That way, we can see tagged points even if they are in the 4%
+                # within-plot buffer zone.  (I am not using xaxs="i" etc because
+                # it can put intrusions on the axis.)
+                plotTS(ctd, eos="unesco", type="n")
+                points(state$data$salinity, state$data$theta, type=input$plotType,
+                    cex=default$TS$cex, col=default$TS$col, lwd=default$TS$lwd, pch=default$TS$pch)
+                state$usr <<- par("usr")
+                if (!is.null(state$focusLevel)) {
+                    with(default$focus,
+                        points(state$data$salinity[state$focusLevel], state$data$theta[state$focusLevel],
+                            cex=cex, col=col, lwd=lwd, pch=pch))
+                }
+                tags <- subset(getTags(state$file, dbname=dbname), level > 0L,)
+                if (nrow(tags) > 0) {
+                    with(default$tag,
+                        points(state$data$salinity[tags$level], state$data$theta[tags$level],
+                            cex=cex, pch=pch, lwd=lwd, col=col))
+                    text(state$data$salinity[tags$level], state$data$theta[tags$level], tags$tagLabel, col=2, pos=4)
+                }
             }
         } else {
             plot(0:1, 0:1, xlab="", ylab="", axes=FALSE, type="n")
             text(0.5, 0.5, paste("ERROR: plot type", input$view, "not handled yet"))
         }
+        plotting <- FALSE
     }, height=height, pointsize=14)
 }
 shinyApp(ui, server)

@@ -44,7 +44,7 @@ vignettes/*.pdf
 .Renviron
 
 # pkgdown site
-docs/
+#docs/
 
 # translation temp files
 po/*~
@@ -52,3 +52,5 @@ po/*~
 # RStudio Connect folder
 rsconnect/
 .DS_Store
+*.png
+*.pdf
