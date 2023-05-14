@@ -234,9 +234,7 @@ findNearestLevel <- function(dblclick, data, view)
 limitsTrim <- function(limits, ndata)
 {
     limits <- as.integer(limits)
-    limits[1] <- max(1L, limits[1])
-    limits[2] <- min(ndata, limits[2])
-    limits
+    c(max(1L, limits[1]), min(ndata, limits[2]))
 }
 
 # Create logical vector indicating whether each point is visible, based
