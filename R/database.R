@@ -1,3 +1,20 @@
+#' Get a table from an SQLite database
+#'
+#' @param table character value naming the table of interest.
+#'
+#' @param dbname character value naming the database file.
+#'
+#' @author Dan Kelley
+#' @export
+getTableFromDatabase <- function(table, dbname)
+{
+    con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+    rval <- DBI::dbReadTable(con, table)
+    DBI::dbDisconnect(con)
+    rval
+}
+
+
 #' Construct a database name.
 #'
 #' A database name is constructed to in the form `PREFIX_USERNAME[_SUFFIX].db`,
@@ -49,4 +66,34 @@ getDatabaseName <- function(prefix, username, suffix, path="~")
     res <- paste0(res, ".db")
     file.path(res)
 }
+
+#' Read a SQLite database as a list
+#'
+#' This may be used, for example, to study the contents of a database
+#' created with [ctdTag()].  This can be handy at the commandline, e.g.
+#'```
+#' Rscript -e 'ctd::dbToList("~/ctdTag_kelley.db")'
+#'```
+#'
+#' @param dbname character value specifying the database file.
+#'
+#' @return a [list] containing items named after the tables.
+#'
+#' @examples
+#'\dontrun{
+#' dbToList("~/ctdTag_kelley.db")
+#'}
+#' @author Dan Kelley
+#'
+#' @export
+dbToList <- function(dbname)
+{
+    con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+    tables <- DBI::dbListTables(con)
+    rval <- list()
+    for (table in tables)
+        rval[[table]] <- DBI::dbReadTable(con, table)
+    rval
+}
+
 
