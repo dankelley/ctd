@@ -20,8 +20,7 @@ This file must be in a format that is handled by \code{\link[oce:read.oce]{oce::
 not supply \code{dir} if \code{file} is supplied.}
 
 \item{dir}{character value specifying the name of a directory containing
-files that hold CTD data. You may not supply \code{file} if \code{dir} is supplied.
-NOTE: the \code{dir} parameter is not actually handled yet (FIXME).}
+files that hold CTD data. You may not supply \code{file} if \code{dir} is supplied.}
 
 \item{dbname}{optional character value specifying the name of a sqlite
 database used to hold tagging information.  If not provided, a file name
@@ -52,7 +51,18 @@ to the R console.  Use 0 for mainly silent processing, 1 for more information, e
 of the problem, otherwise.
 }
 \description{
-Tag CTD features
+This function may be used to tag features in CTD data.  It works by
+launching an R/Shiny app, providing it with information gleaned
+from the function parameters.  It may be used to work with a single data
+file (specified with \code{file}) or with all the \code{.cnv} files in a directory
+(specified with \code{dir}).  The user interface is meant to be reasonably
+self-explanatory.  The information provided via the user's mouse clicks
+and keyboard actions is recorded in an SQLite database named (by default)
+\verb{~/ctdTag_USERNAME.db}, where \code{USERNAME} is the user's login name on the
+computer.  This files \emph{must not} be edited or modified by the user, unless
+that user has a high degree of expertise in SQL and in the functioning
+of this package.  Since \code{ctdTag()} is still in development, sensible users
+will make frequent backups of their \verb{~/ctdTag_USERNAME.db} file.
 }
 \examples{
 \dontrun{
