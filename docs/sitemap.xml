@@ -22,7 +22,13 @@
     <loc>/reference/ctdTag.html</loc>
   </url>
   <url>
+    <loc>/reference/dbToList.html</loc>
+  </url>
+  <url>
     <loc>/reference/getDatabaseName.html</loc>
+  </url>
+  <url>
+    <loc>/reference/getTableFromDatabase.html</loc>
   </url>
   <url>
     <loc>/reference/index.html</loc>
