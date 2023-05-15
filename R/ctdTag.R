@@ -1,12 +1,24 @@
 #' Tag CTD features
 #'
+#' This function may be used to tag features in CTD data.  It works by
+#' launching an R/Shiny app, providing it with information gleaned
+#' from the function parameters.  It may be used to work with a single data
+#' file (specified with `file`) or with all the `.cnv` files in a directory
+#' (specified with `dir`).  The user interface is meant to be reasonably
+#' self-explanatory.  The information provided via the user's mouse clicks
+#' and keyboard actions is recorded in an SQLite database named (by default)
+#' `~/ctdTag_USERNAME.db`, where `USERNAME` is the user's login name on the
+#' computer.  This files *must not* be edited or modified by the user, unless
+#' that user has a high degree of expertise in SQL and in the functioning
+#' of this package.  Since `ctdTag()` is still in development, sensible users
+#' will make frequent backups of their `~/ctdTag_USERNAME.db` file.
+#'
 #' @param file character value specifying the name of a file containing CTD data.
 #' This file must be in a format that is handled by [oce::read.oce()].  You may
 #' not supply `dir` if `file` is supplied.
 #'
 #' @param dir character value specifying the name of a directory containing
 #' files that hold CTD data. You may not supply `file` if `dir` is supplied.
-#' NOTE: the `dir` parameter is not actually handled yet (FIXME).
 #'
 #' @param dbname optional character value specifying the name of a sqlite
 #' database used to hold tagging information.  If not provided, a file name

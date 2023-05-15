@@ -2,9 +2,7 @@
 
 * Improve `ctdTag()` user interface and file actions.
 
-# oce 0.1.0
+# ctd 0.1.0
 
 * Initial version, changing rapidly.
-
-
 
