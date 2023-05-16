@@ -3,11 +3,12 @@
 library(oce)
 options(oceEOS="unesco") # avoid the hassle of supporting two EOS types
 library(shiny)
+library(markdown)
 library(shinyBS)
 
 # Set version to be stored in the database.  Old databases are converted to
 # this version, step by step.
-dbVersion <- data.frame(major=1L, minor=5L) # 'minor' may not exceed 100
+dbVersion <- data.frame(major=1L, minor=6L) # 'minor' may not exceed 100
 
 debug <- 0
 t0 <- as.numeric(Sys.time()) # used by msg() et al.
@@ -141,6 +142,11 @@ createDatabase <- function(dbname=getDatabaseName(), tagScheme=NULL)
                 DBI::dbWriteTable(con, "tags", tags, overwrite=TRUE)
                 msg("    Created `analysts` table\n")
             }
+            if (versionOld < 1.06) { # add 'notes' table
+                msg("  Updating database to version 1.6\n")
+                DBI::dbCreateTable(con, "notes", c(analystId="INTEGER", fileId="INTEGER", note="TEXT"))
+                msg("    Created `notes` table\n")
+            }
             DBI::dbWriteTable(con, "version", dbVersion, overwrite=TRUE)
             msg("Finished updating database\n")
         } else {
@@ -153,12 +159,13 @@ createDatabase <- function(dbname=getDatabaseName(), tagScheme=NULL)
             stop("Must provide tagScheme")
         con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
         DBI::dbCreateTable(con, "version", c("major"="INTEGER", "minor"="INTEGER"))
-        DBI::dbWriteTable(con, "version", data.frame(major=1L, minor=0L), overwrite=TRUE)
+        DBI::dbWriteTable(con, "version", data.frame(major=dbVersion$major, minor=dbVersion$minor), overwrite=TRUE)
         DBI::dbCreateTable(con, "tagScheme", c(tagCode="INTEGER", tagLabel="TEXT"))
         DBI::dbWriteTable(con, "tagScheme", tagScheme, overwrite=TRUE)
         DBI::dbCreateTable(con, "files", c(fileId="INTEGER", fileName="TEXT"))
         DBI::dbCreateTable(con, "tags", c(fileId="INTEGER", level="INTEGER", tagCode="INTEGER",
-                analyst="TEXT", analysisTime="TIMESTAMP"))
+                analystId="INTEGER", analysisTime="TIMESTAMP"))
+        DBI::dbCreateTable(con, "notes", c(analystId="INTEGER", fileId="INTEGER", note="TEXT"))
         DBI::dbDisconnect(con)
     }
 }
@@ -302,7 +309,8 @@ ui <- fluidPage(
         tabPanel("File", value=1),
         tabPanel("Analysis", value=2),
         tabPanel("Summary", value=3),
-        tabPanel("Help", value=4)),
+        tabPanel("Notes", value=4),
+        tabPanel("Help", value=5)),
     conditionalPanel("input.tabselected == 1",
         fluidRow(style="background:#e6f3ff;cursor:crosshair;col=blue;",
             column(6, uiOutput("fileSelectControl"))),
@@ -310,7 +318,7 @@ ui <- fluidPage(
             column(6, uiOutput("fileSelect"))),
         fluidRow(column(1, actionButton("quit", "Quit")))
         ),
-    conditionalPanel("input.tabselected == 2",
+    conditionalPanel("input.tabselected == 2", # Analysis
         fluidRow(
             style="background:#e6f3ff;cursor:crosshair;col=blue;",
             column(2, selectInput("debug", label=NULL,
@@ -343,11 +351,12 @@ ui <- fluidPage(
             column(12, uiOutput("tagHint"))),
         fluidRow(
             uiOutput("plotPanel"))),
-    conditionalPanel("input.tabselected == 3",
+    conditionalPanel("input.tabselected == 3", # Summary
         fluidRow(uiOutput("summaryControl")),
-        fluidRow(uiOutput("summary"))
-        ),
-    conditionalPanel("input.tabselected == 4", fluidRow(uiOutput("help"))),
+        fluidRow(uiOutput("summary"))),
+    conditionalPanel("input.tabselected == 4", # Notes
+        fluidRow(uiOutput("notes"))),
+    conditionalPanel("input.tabselected == 5", fluidRow(uiOutput("help"))),
     shinyBS::bsTooltip("debug",
         paste("Control how much information is displayed in the console,",
             "0 for a little, 1 for some, or 2 for a lot.")),
@@ -507,8 +516,9 @@ server <- function(input, output, session) {
         data$ylabProfile <- oce::resizableLabel("p")
         data$sigmaTheta <- oce::swSigmaTheta(ctd, eos="unesco")
         data$visible <- rep(TRUE, length(data$pressure))
+        files <- getTableFromDatabase("files", dbname)
         dmsg("...done\n")
-        list(ctd=ctd, data=data)
+        list(ctd=ctd, data=data, fileId=subset(files, fileName == file)$fileId)
     }
 
     focusIsVisible <- function() {
@@ -527,9 +537,10 @@ server <- function(input, output, session) {
         stepTag=0L, # increment with tag modification, so summary works
         analystId=getAnalystId(getUserName(), dbname), # will not change for whole app session
         dir=if(dirGiven) dir else NULL,# will not change for whole app session
-        file=file,                     # changes if a new file loaded
+        file=tildeName(file),          # changes if a new file loaded
         ctd=fileInfo$ctd,              # changes if a new file loaded
         data=fileInfo$data,            # changes if a new file loaded
+        fileId=fileInfo$fileId,        # changes if a new file loaded
         focusLevel=NULL)               # changes based on mouse, also reset to NULL on new files
 
     focusIsSet <- function()
@@ -556,9 +567,10 @@ server <- function(input, output, session) {
             dmsg(vectorShow(state$dir))
             filename <- tildeName(paste0(state$dir, "/", input$file1))
             fileInfo <- registerFile(filename)
-            state$file <<- filename
+            state$file <<- tildeName(filename)
             state$ctd <<- fileInfo$ctd
             state$data <<- fileInfo$data
+            state$fileId <<- fileInfo$fileId
             state$focusLevel <<- NULL
         })
 
@@ -682,26 +694,28 @@ server <- function(input, output, session) {
     # https://github.com/dankelley/ctd/issues/3
     observeEvent(input$keypressTrigger,
         {
-            if (!plotting) {
-                key <- intToUtf8(input$keypress)
-                dmsg("key=", key, "\n")
-                dmsg("keypress (", key, ") is being handled, since we are not plotting (FIXME: need this?)\n")
-                if (key %in% as.character(tagScheme$tagCode) && focusIsVisible() && !focusIsTagged()) {
-                    dmsg("  tagging at level ", state$focusLevel, "\n")
-                    addTag(file=state$file, level=state$focusLevel, tagCode=as.integer(key),
-                        tagScheme=tagScheme, analystId=state$analystId, dbname=dbname)
-                    state$step <<- state$step + 1 # other shiny elements notice this
-                    state$stepTag <<- state$stepTag + 1 # only 'summary' notices this
-                } else if (key == "x" && focusIsTagged()) {
-                    dmsg("  untagging at level ", state$focusLevel, "\n")
-                    removeTag(file=state$file, level=state$focusLevel, dbname=dbname)
-                    state$step <<- state$step + 1 # other shiny elements notice this
-                    state$stepTag <<- state$stepTag + 1 # only 'summary' notices this
+            if (input$tabselected == 2) {
+                if (!plotting) {
+                    key <- intToUtf8(input$keypress)
+                    dmsg("key=", key, "\n")
+                    dmsg("keypress (", key, ") is being handled, since we are not plotting (FIXME: need this?)\n")
+                    if (key %in% as.character(tagScheme$tagCode) && focusIsVisible() && !focusIsTagged()) {
+                        dmsg("  tagging at level ", state$focusLevel, "\n")
+                        addTag(file=state$file, level=state$focusLevel, tagCode=as.integer(key),
+                            tagScheme=tagScheme, analystId=state$analystId, dbname=dbname)
+                        state$step <<- state$step + 1 # other shiny elements notice this
+                        state$stepTag <<- state$stepTag + 1 # only 'summary' notices this
+                    } else if (key == "x" && focusIsTagged()) {
+                        dmsg("  untagging at level ", state$focusLevel, "\n")
+                        removeTag(file=state$file, level=state$focusLevel, dbname=dbname)
+                        state$step <<- state$step + 1 # other shiny elements notice this
+                        state$stepTag <<- state$stepTag + 1 # only 'summary' notices this
+                    } else {
+                        dmsg("  ignoring keypress (invalid key, or no focus level)\n")
+                    }
                 } else {
-                    dmsg("  ignoring keypress (invalid key, or no focus level)\n")
+                    dmsg("keypress (", key, ") ignored, since still plotting\n")
                 }
-            } else {
-                dmsg("keypress (", key, ") ignored, since still plotting\n")
             }
         })
 
@@ -844,6 +858,53 @@ server <- function(input, output, session) {
             inThisDirectory <- grep(state$dir, tmp$file)
             tmp <- tmp[inThisDirectory, ]
             DT::renderDT(tmp)
+        })
+
+    output$notes <- renderUI(
+        {
+            dmsg("in output$notes\n")
+            dmsg(state$file)
+            files <- getTableFromDatabase("files", dbname)
+            dprint(files)
+            w <- grep(state$file, files$fileName)
+            note <- ""
+            if (length(w) != 1) {
+                stop("Error in notes lookup for file \"", state$file, "\"")
+            } else {
+                notes <- getTableFromDatabase("notes", dbname)
+                note <- notes[notes$fileId == state$fileId, "note"]
+            }
+            fluidRow(
+                column(4, paste("Notes on", state$file)),
+                column(12, HTML(markdown::mark(note))),
+                column(12, actionButton("noteInputUpdate", "Update")),
+                column(12, textInput("noteInput", "", value=note, width="100%")))
+        })
+
+    observeEvent(input$noteInputUpdate,
+        {
+            msg("in observeEvent(input$noteInputUpdate)\n")
+            msg(vectorShow(input$noteInput))
+            # FIXME: should save state$fileId because we use that a lot
+            msg(vectorShow(state$analystId))
+            msg(vectorShow(state$fileId))
+            notes <- getTableFromDatabase("notes", dbname)
+            w <- notes$fileId == state$fileId
+            if (length(w)) {
+                msg("altering an existing note ...\n")
+                con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+                notes[notes$fileId == state$fileId, "note"] <- input$noteInput
+                DBI::dbWriteTable(con, "notes", notes, overwrite=TRUE)
+                DBI::dbDisconnect(con)
+                dmsg("  ... done\n")
+            } else {
+                dmsg("adding a new note...\n")
+                df <- data.frame(analystId=state$analystId, fileId=state$fileId, note=input$noteInput)
+                con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
+                DBI::dbAppendTable(con, "notes", df)
+                DBI::dbDisconnect(con)
+                dmsg("  ... done\n")
+            }
         })
 
     output$help <- renderUI(

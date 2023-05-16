@@ -61,6 +61,8 @@
 # naming all the functions.  Just having a single function seems to be enough
 # to make R-check be happy.
 #'
+#' @importFrom markdown mark
+#'
 #' @importFrom DBI dbClearResult dbConnect dbCreateTable dbFetch dbListTables dbReadTable dbSendQuery dbWriteTable
 #'
 #' @importFrom DT renderDT
