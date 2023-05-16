@@ -1,16 +1,15 @@
 # vim:textwidth=80:expandtab:shiftwidth=4:softtabstop=4
 
+library(oce)
+options(oceEOS="unesco") # avoid the hassle of supporting two EOS types
 library(shiny)
 library(shinyBS)
 
-# Set version to be stored in the database.  If the database is older than
-# this, then conversion is done first, with messages being printed even
-# if debug==0.
+# Set version to be stored in the database.  Old databases are converted to
+# this version, step by step.
 dbVersion <- data.frame(major=1L, minor=5L) # 'minor' may not exceed 100
 
-library(oce)
-options(oceEOS="unesco") # avoid the hassle of supporting two EOSs
-debug <- 1
+debug <- 0
 t0 <- as.numeric(Sys.time()) # used by msg() et al.
 
 # Utility functions
@@ -175,8 +174,7 @@ getTags <- function(file=NULL, dbname=NULL)
         tags <- DBI::dbReadTable(con, "tags")
         tagScheme <- DBI::dbReadTable(con, "tagScheme")
         DBI::dbDisconnect(con)
-        rval <- subset(tags, fileId==subset(files, fileName==file)$fileId)
-        dmsg("    ", vectorShow(nrow(rval)))
+        rval <- subset(tags, fileId == subset(files, fileName == file)$fileId)
         rval <- merge(rval, tagScheme, by="tagCode")
     }
     dmsg("  returning ", nrow(rval), " tags\n")
@@ -190,7 +188,7 @@ removeTag <- function(file=NULL, level=NULL, dbname=NULL)
     con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
     tags <- DBI::dbReadTable(con, "tags")
     files <- DBI::dbReadTable(con, "files")
-    tags <- subset(tags, fileId==subset(files, fileName==file)$fileId)
+    tags <- subset(tags, fileId == subset(files, fileName == file)$fileId)
     remove <- which(tags$level == level)
     if (length(remove)) {
         dmsg1("    removing ", paste(remove, collapse=" "), "-th tag\n")
@@ -203,16 +201,16 @@ removeTag <- function(file=NULL, level=NULL, dbname=NULL)
 }
 
 # Save a tag.
-addTag <- function(file=NULL, level=NULL, tagCode=NULL, tagScheme=NULL, analyst=NULL, dbname=NULL)
+addTag <- function(file=NULL, level=NULL, tagCode=NULL, tagScheme=NULL, analystId=NULL, dbname=NULL)
 {
-    tagLabel <- tagScheme[which(tagCode==tagScheme$tagCode), "tagLabel"]
+    tagLabel <- tagScheme[which(tagCode == tagScheme$tagCode), "tagLabel"]
     if (identical(length(tagLabel), 1L)) {
         dmsg("saving tag ", tagCode, " at level ", level, "\n")
         con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
         tags <- DBI::dbReadTable(con, "tags")
         files <- DBI::dbReadTable(con, "files")
-        fileId <- subset(files, fileName==file)$fileId
-        df <- data.frame(fileId=fileId, level=level, tagCode=tagCode, analyst=analyst, analysisTime=Sys.time())
+        fileId <- subset(files, fileName == file)$fileId
+        df <- data.frame(fileId=fileId, level=level, tagCode=tagCode, analystId=analystId, analysisTime=Sys.time())
         DBI::dbAppendTable(con, "tags", df)
         DBI::dbDisconnect(con)
     } else {
@@ -298,21 +296,21 @@ default <- list(
 
 ui <- fluidPage(
     #shinyjs::useShinyjs(),
-    style="margin-bottom:1px; margin-top:0px; color:red; padding-top:0px; padding-bottom:0px;",
+    style="margin-bottom:1px; margin-top:0px; color:blue; padding-top:0px; padding-bottom:0px;",
     tags$script('$(document).on("keypress", function (e) { Shiny.onInputChange("keypress", e.which); Shiny.onInputChange("keypressTrigger", Math.random()); });'),
     tabsetPanel(type="tabs", id="tabselected", selected=1,
         tabPanel("File", value=1),
         tabPanel("Analysis", value=2),
         tabPanel("Summary", value=3),
         tabPanel("Help", value=4)),
-    conditionalPanel("input.tabselected==1",
+    conditionalPanel("input.tabselected == 1",
         fluidRow(style="background:#e6f3ff;cursor:crosshair;col=blue;",
-            column(6, uiOutput("fileSelectFocus"))),
+            column(6, uiOutput("fileSelectControl"))),
         fluidRow(style="background:#e6f3ff;cursor:crosshair;col=blue;",
             column(6, uiOutput("fileSelect"))),
         fluidRow(column(1, actionButton("quit", "Quit")))
         ),
-    conditionalPanel("input.tabselected==2",
+    conditionalPanel("input.tabselected == 2",
         fluidRow(
             style="background:#e6f3ff;cursor:crosshair;col=blue;",
             column(2, selectInput("debug", label=NULL,
@@ -345,7 +343,10 @@ ui <- fluidPage(
             column(12, uiOutput("tagHint"))),
         fluidRow(
             uiOutput("plotPanel"))),
-    conditionalPanel("input.tabselected == 3", fluidRow(uiOutput("summary"))),
+    conditionalPanel("input.tabselected == 3",
+        fluidRow(uiOutput("summaryControl")),
+        fluidRow(uiOutput("summary"))
+        ),
     conditionalPanel("input.tabselected == 4", fluidRow(uiOutput("help"))),
     shinyBS::bsTooltip("debug",
         paste("Control how much information is displayed in the console,",
@@ -485,7 +486,7 @@ server <- function(input, output, session) {
     # Save file to database and also to 'state'
     registerFile <- function(file)
     {
-        msg("registerFile(\"", file, "\") ...\n")
+        dmsg("registerFile(\"", file, "\") ...\n")
         file <- tildeName(file)
         # Add this file to the `files` table, if it's not there already.
         con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
@@ -551,8 +552,8 @@ server <- function(input, output, session) {
 
     observeEvent(input$file1,
         {
-            msg("observeEvent on ", vectorShow(input$file1))
-            msg(vectorShow(state$dir))
+            dmsg("observeEvent on ", vectorShow(input$file1))
+            dmsg(vectorShow(state$dir))
             filename <- tildeName(paste0(state$dir, "/", input$file1))
             fileInfo <- registerFile(filename)
             state$file <<- filename
@@ -683,7 +684,7 @@ server <- function(input, output, session) {
         {
             if (!plotting) {
                 key <- intToUtf8(input$keypress)
-                msg("key=", key, "\n")
+                dmsg("key=", key, "\n")
                 dmsg("keypress (", key, ") is being handled, since we are not plotting (FIXME: need this?)\n")
                 if (key %in% as.character(tagScheme$tagCode) && focusIsVisible() && !focusIsTagged()) {
                     dmsg("  tagging at level ", state$focusLevel, "\n")
@@ -715,13 +716,13 @@ server <- function(input, output, session) {
         }
     })
 
-    output$fileSelectFocus <- renderUI(
+    output$fileSelectControl <- renderUI(
         {
-            msg("in output$fileSelectFocus\n")
+            dmsg("in output$fileSelectControl\n")
             fluidRow(
                 column(12,
-                    radioButtons("fileSelectFocusChoice",
-                        paste("Focus within", state$dir),
+                    radioButtons("fileSelectControlChoice",
+                        paste0("Focus (within ", state$dir, ")"),
                         c("all files",
                             "unexamined files",
                             "previously examined files",
@@ -730,26 +731,39 @@ server <- function(input, output, session) {
 
     output$fileSelect <- renderUI(
         {
+            state$tags # to cause shiny to update this
+            state$files # to cause shiny to update this
             dmsg("in output$fileSelect\n")
-            dmsg("  input$fileSelectFocusChoice=", input$fileSelectFocusChoice, "\n")
+            dmsg("  input$fileSelectControlChoice=", input$fileSelectControlChoice, "\n")
             if (!is.null(state$dir)) {
                 # The focus is empty on the first call, as the shiny interface
                 # is being constructed.
-                focus <- input$fileSelectFocusChoice
+                focus <- input$fileSelectControlChoice
                 if (!length(focus))
                     focus <- "all files"
-                msg("  focus=\"", focus, "\"\n")
-                filesInDatabase <- sort(gsub(paste0(state$dir,"/"), "", getTableFromDatabase("files", dbname)$fileName))
+                dmsg("  focus=\"", focus, "\"\n")
+                # Names of previously examined files (that are in state$dir)
+                files <- getTableFromDatabase("files", dbname)
+                examinedFiles <- gsub(".*/", "", files[grep(state$dir, files$fileName), "fileName"])
+                # Names of files in state$dir
                 filesInDir <- list.files(state$dir, pattern=".cnv$")
-                choices <- if (focus == "all files")
+                # Names of tagged files in database (that are in state$dir)
+                tags <- getTableFromDatabase("tags", dbname)
+                taggedFiles <- gsub(".*/", "", unique(merge(tags, files, by="fileId")$fileName))
+                choices <- if (focus == "all files") {
                     filesInDir
-                else if (focus == "previously examined files")
-                    filesInDatabase
-                else if (focus == "unexamined files")
-                    filesInDir[!filesInDir %in% filesInDatabase]
+                } else if (identical(focus, "unexamined files")) {
+                    filesInDir[!filesInDir %in% examinedFiles]
+                } else if (identical(focus, "previously examined files")) {
+                    examinedFiles
+                } else if (identical(focus, "previously examined (but untagged) files")) {
+                    examinedFiles[!(examinedFiles %in% taggedFiles)]
+                } else {
+                    stop("internal coding error in determining which files to show")
+                }
                 fluidRow(
                     column(12,
-                        selectInput("file1", label="Choose a file", choices=choices, width="50%"))
+                        selectInput("file1", label="Choose a file", choices=sort(choices), width="50%"))
                 )
             }
         })
@@ -764,14 +778,14 @@ server <- function(input, output, session) {
     output$tagHint <- renderText(
         {
             if (!is.null(state$focusLevel)) {
-                msg("DAN state$file='", state$file, "'\n")
+                #msg("DAN state$file='", state$file, "'\n")
                 tags <- getTags(state$file, dbname=dbname)
                 if (state$focusLevel %in% tags$level) {
                     focusTag <- tags[tags$level == state$focusLevel, "tagLabel"]
                     sprintf("%s %d (%.1f dbar) tagged \"%s\"; type 'x' to remove tag.",
                         if (focusIsVisible()) "Level" else "OFFSCALE level",
                         state$focusLevel,
-                        data$pressure[state$focusLevel],
+                        state$data$pressure[state$focusLevel],
                         focusTag)
                 } else {
                     sprintf("%s %d (%.1f dbar): may tag %s.",
@@ -785,9 +799,22 @@ server <- function(input, output, session) {
             }
         })
 
+    output$summaryControl <- renderUI(
+        {
+            dmsg("in output$summaryControl\n")
+            fluidRow(
+                style="background:#e6f3ff; margin-bottom:4px; margin-top:4px; margin-left:10px; color:blue;",
+                column(12,
+                    radioButtons("summaryControlChoice",
+                        paste("Focus within", state$dir),
+                        c("the present file",
+                            "all examined files"))))
+        })
+
     output$summary <- renderUI(
         {
             state$stepTag # to cause shiny to update this
+            state$file # to cause shiny to update this
             # FIXME: how to render more info, e.g. dbname, present file, etc?
             dmsg("responding to request for a summary\n")
             con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
@@ -798,6 +825,14 @@ server <- function(input, output, session) {
             DBI::dbDisconnect(con)
             tmp <- merge(merge(tags, files, by="fileId"), tagScheme, by="tagCode")
             tmp <- merge(tmp, analysts, by="analystId")
+            # restrict to the present directory
+            tmp <- tmp[grepl(state$dir, tmp$fileName), ]
+            # possibly restrict to present file
+            dmsg("  ", vectorShow(input$summaryControlChoice))
+            dmsg("  ", vectorShow(state$file))
+            if (identical(input$summaryControlChoice, "the present file")) {
+                tmp <- tmp[grepl(state$file, tmp$fileName), ]
+            }
             o <- order(tmp$analysisTime, decreasing=TRUE)
             tmp <- tmp[o, ]
             # reorder and rename for clarity
