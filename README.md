@@ -22,6 +22,6 @@ whereas installing `"develop"` may be done with
 
 ## Reporting bugs and requesting new features
 
-Please use www.github.com/dankelley/ctd/issues to report bugs or suggest new
-features.
+Please use https://www.github.com/dankelley/ctd/issues to report bugs or suggest
+new features.
 
