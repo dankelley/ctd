@@ -1,6 +1,6 @@
 Package: ctd
 Title: Tools for Processing CTD Data
-Version: 0.2.0
+Version: 0.3.0
 Authors@R: c(
     person(given="Dan", family="Kelley", email="Dan.Kelley@Dal.Ca", role=c("aut", "cre"), comment=c(ORCID="https://orcid.org/0000-0001-7808-5911")))
 Maintainer: Dan Kelley <Dan.Kelley@Dal.Ca>

@@ -862,6 +862,7 @@ server <- function(input, output, session) {
 
     output$notes <- renderUI(
         {
+            state$step # to cause shiny to update this
             dmsg("in output$notes\n")
             dmsg(state$file)
             files <- getTableFromDatabase("files", dbname)
@@ -876,22 +877,42 @@ server <- function(input, output, session) {
             }
             fluidRow(
                 column(4, paste("Notes on", state$file)),
-                column(12, HTML(markdown::mark(note))),
+                #column(12, HTML(markdown::mark(note))),
+                column(12, textOutput("showNote")),
                 column(12, actionButton("noteInputUpdate", "Update")),
                 column(12, textInput("noteInput", "", value=note, width="100%")))
         })
 
+    output$showNote <- renderText(
+        {
+            state$step
+            #msg("DAN DAN DAN in showNote\n")
+            notes <- getTableFromDatabase("notes", dbname)
+            w <- which(notes$fileId == state$fileId)
+            #msg(vectorShow(w))
+            #dprint(notes)
+            #dprint(notes[w,])
+            #msg(notes[w, "note"])
+            if (length(w) > 0L) {
+                #markdown::mark(notes[w, "note"])
+                notes[w, "note"]
+            } else {
+                ""
+            }
+        })
+
     observeEvent(input$noteInputUpdate,
         {
-            msg("in observeEvent(input$noteInputUpdate)\n")
-            msg(vectorShow(input$noteInput))
+            state$step <<- state$step + 1L
+            dmsg("in observeEvent(input$noteInputUpdate)\n")
+            dmsg(vectorShow(input$noteInput))
             # FIXME: should save state$fileId because we use that a lot
-            msg(vectorShow(state$analystId))
-            msg(vectorShow(state$fileId))
+            dmsg(vectorShow(state$analystId))
+            dmsg(vectorShow(state$fileId))
             notes <- getTableFromDatabase("notes", dbname)
             w <- notes$fileId == state$fileId
             if (length(w)) {
-                msg("altering an existing note ...\n")
+                dmsg("altering an existing note ...\n")
                 con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
                 notes[notes$fileId == state$fileId, "note"] <- input$noteInput
                 DBI::dbWriteTable(con, "notes", notes, overwrite=TRUE)
@@ -905,6 +926,7 @@ server <- function(input, output, session) {
                 DBI::dbDisconnect(con)
                 dmsg("  ... done\n")
             }
+            #updateTextInput(server, "noteInput", "")#
         })
 
     output$help <- renderUI(
