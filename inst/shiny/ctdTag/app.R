@@ -496,13 +496,12 @@ server <- function(input, output, session) {
     registerFile <- function(file)
     {
         dmsg("registerFile(\"", file, "\") ...\n")
-        file <- tildeName(file)
         # Add this file to the `files` table, if it's not there already.
         con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
         files <- DBI::dbReadTable(con, "files")
         if (!(file %in% files$fileName)) {
             dmsg("  adding \"", file, "\" to the `files` database table\n")
-            df <- data.frame(fileId=1L+max(files$fileId), fileName=file)
+            df <- data.frame(fileId=1L+max(files$fileId), fileName=tildeName(file))
             DBI::dbAppendTable(con, "files", df)
             files <- DBI::dbReadTable(con, "files")
         }
@@ -517,8 +516,10 @@ server <- function(input, output, session) {
         data$sigmaTheta <- oce::swSigmaTheta(ctd, eos="unesco")
         data$visible <- rep(TRUE, length(data$pressure))
         files <- getTableFromDatabase("files", dbname)
+        fileId <- subset(files, fileName == file)$fileId
+        msg("  file=\"", file, "\" has fileId=", fileId, "\n")
         dmsg("...done\n")
-        list(ctd=ctd, data=data, fileId=subset(files, fileName == file)$fileId)
+        list(ctd=ctd, data=data, fileId=fileId)
     }
 
     focusIsVisible <- function() {
@@ -531,13 +532,14 @@ server <- function(input, output, session) {
     if (!fileGiven)
         file <- list.files(dir, pattern=".cnv$", full.names=TRUE)[1]
     # Read the file, setting up state variables as needed.
+    file <- tildeName(file)
     fileInfo  <- registerFile(file)
     state <- reactiveValues(
         step=0L,
         stepTag=0L, # increment with tag modification, so summary works
         analystId=getAnalystId(getUserName(), dbname), # will not change for whole app session
         dir=if(dirGiven) dir else NULL,# will not change for whole app session
-        file=tildeName(file),          # changes if a new file loaded
+        file=file,                     # changes if a new file loaded
         ctd=fileInfo$ctd,              # changes if a new file loaded
         data=fileInfo$data,            # changes if a new file loaded
         fileId=fileInfo$fileId,        # changes if a new file loaded
@@ -567,11 +569,12 @@ server <- function(input, output, session) {
             dmsg(vectorShow(state$dir))
             filename <- tildeName(paste0(state$dir, "/", input$file1))
             fileInfo <- registerFile(filename)
-            state$file <<- tildeName(filename)
             state$ctd <<- fileInfo$ctd
             state$data <<- fileInfo$data
+            state$file <<- filename
             state$fileId <<- fileInfo$fileId
             state$focusLevel <<- NULL
+            msg("  state$file=\"", state$file, "\" has statefileId=", state$fileId, "\n")
         })
 
     observeEvent(input$quit,
@@ -868,6 +871,7 @@ server <- function(input, output, session) {
             files <- getTableFromDatabase("files", dbname)
             dprint(files)
             w <- grep(state$file, files$fileName)
+            msg(vectorShow(w))
             note <- ""
             if (length(w) != 1) {
                 stop("Error in notes lookup for file \"", state$file, "\"")
@@ -886,13 +890,14 @@ server <- function(input, output, session) {
     output$showNote <- renderText(
         {
             state$step
-            #msg("DAN DAN DAN in showNote\n")
+            state$fileId
+            msg("in showNote...\n")
+            msg("  ", vectorShow(state$fileId))
             notes <- getTableFromDatabase("notes", dbname)
             w <- which(notes$fileId == state$fileId)
-            #msg(vectorShow(w))
-            #dprint(notes)
-            #dprint(notes[w,])
-            #msg(notes[w, "note"])
+            msg("  ", vectorShow(w))
+            dprint(notes)
+            msg("  ", vectorShow(notes[w, "note"]))
             if (length(w) > 0L) {
                 #markdown::mark(notes[w, "note"])
                 notes[w, "note"]
@@ -910,23 +915,25 @@ server <- function(input, output, session) {
             dmsg(vectorShow(state$analystId))
             dmsg(vectorShow(state$fileId))
             notes <- getTableFromDatabase("notes", dbname)
-            w <- notes$fileId == state$fileId
+            w <- which(notes$fileId == state$fileId)
             if (length(w)) {
-                dmsg("altering an existing note ...\n")
+                dmsg("altering an existing note (w=", w, ") ...\n")
+                dmsg(vectorShow(input$noteInput))
+                notes[w, "note"] <- input$noteInput
                 con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
-                notes[notes$fileId == state$fileId, "note"] <- input$noteInput
                 DBI::dbWriteTable(con, "notes", notes, overwrite=TRUE)
                 DBI::dbDisconnect(con)
                 dmsg("  ... done\n")
             } else {
                 dmsg("adding a new note...\n")
+                dmsg(vectorShow(input$noteInput))
                 df <- data.frame(analystId=state$analystId, fileId=state$fileId, note=input$noteInput)
+                notes <- rbind(notes, df)
                 con <- DBI::dbConnect(RSQLite::SQLite(), dbname)
-                DBI::dbAppendTable(con, "notes", df)
+                DBI::dbWriteTable(con, "notes", notes, overwrite=TRUE)
                 DBI::dbDisconnect(con)
                 dmsg("  ... done\n")
             }
-            #updateTextInput(server, "noteInput", "")#
         })
 
     output$help <- renderUI(
